@@ -9,13 +9,14 @@ const MEALS = [
   { id: 'snack', label: 'Snacks' },
 ];
 const DEFAULT_STATE = {
-  goals: { kcal: 2000, p: 100, c: 230, f: 70, fib: 30, sug: 50, salt: 6, water: 2000, weight: 0, weightDate: '' },
+  goals: { kcal: 2000, p: 100, c: 230, f: 70, fib: 30, sug: 50, salt: 6, water: 2000, weight: 0, weightDate: '', actFactor: 1 },
   days: {},          // 'YYYY-MM-DD' -> { entries: [], water: 0 }
   customFoods: [],   // gleiche Struktur wie BASE_FOODS, plus id
   recent: [],        // zuletzt verwendete Lebensmittel (Snapshot)
   dishes: [],        // gespeicherte Gerichte: { id, name, portions, ingredients: [...] }
   weights: [],       // Messungen: { id, ts: 'YYYY-MM-DDTHH:MM', date, kg, fat (%), source }
   profile: {},       // Angaben für den Zielrechner
+  recentActivities: [], // zuletzt genutzte Aktivitäten
 };
 
 // Alle erfassten Nährwerte (pro 100 g/ml bzw. absolut in Einträgen)
@@ -78,6 +79,22 @@ function totals(entries) {
   return entries.reduce(addN, zeroN());
 }
 
+// Verbrauch durch Aktivitäten an einem Tag
+function burnedOn(date) {
+  return (state.days[date]?.activities || []).reduce((s, a) => s + (Number(a.kcal) || 0), 0);
+}
+
+// Tagesziele inkl. angerechneter Aktivitätskalorien (Mehr-kcal gehen in KH und Fett, Eiweiß bleibt)
+function effGoals(date) {
+  const g = state.goals;
+  const factor = g.actFactor ?? 1;
+  const extra = Math.round(burnedOn(date) * factor);
+  if (!extra || !g.kcal) return { ...g, extra: 0 };
+  const cK = g.c * 4, fK = g.f * 9;
+  const share = cK + fK > 0 ? cK / (cK + fK) : 0.6;
+  return { ...g, extra, kcal: g.kcal + extra, c: g.c + (extra * share) / 4, f: g.f + (extra * (1 - share)) / 9 };
+}
+
 function scale(food, amount) {
   const k = amount / 100;
   return mapN(food, v => v * k);
@@ -127,7 +144,7 @@ function renderDay() {
   $('#dateLabel').textContent = dateLabel(currentDate);
   const day = getDay(currentDate);
   const t = totals(day.entries);
-  const g = state.goals;
+  const g = effGoals(currentDate);
 
   // Kalorienring
   const C = 2 * Math.PI * 52;
@@ -141,6 +158,8 @@ function renderDay() {
   $('#kcalLeftLabel').textContent = left >= 0 ? 'kcal übrig' : 'kcal drüber';
   $('#kcalEaten').textContent = fmt(t.kcal);
   $('#kcalGoal').textContent = fmt(g.kcal);
+  $('#kcalAct').textContent = g.extra ? `(inkl. +${fmt(g.extra)} Aktivität)` : '';
+  renderActivities();
 
   for (const m of ['p', 'c', 'f']) {
     const el = $(`.macro[data-m="${m}"]`);
@@ -430,7 +449,7 @@ function renderHistory() {
     days.map((d, i) => `
       <div class="wc-col" data-date="${d}">
         <span class="wc-val">${vals[i] ? fmt(vals[i]) : ''}</span>
-        <div class="wc-bar ${!vals[i] ? 'empty' : vals[i] > g.kcal ? 'over' : ''}" style="height:${(vals[i] / max) * 120}px"></div>
+        <div class="wc-bar ${!vals[i] ? 'empty' : vals[i] > effGoals(d).kcal ? 'over' : ''}" style="height:${(vals[i] / max) * 120}px"></div>
         <span class="wc-label">${parseIso(d).toLocaleDateString('de-DE', { weekday: 'short' })}</span>
       </div>`).join('');
   const logged = vals.filter(Boolean);
@@ -444,7 +463,8 @@ function renderHistory() {
     const day = state.days[d];
     if (!day || !day.entries.length) continue;
     const tt = totals(day.entries);
-    items.push(`<li data-date="${d}"><span>${dateLabel(d)}</span><span class="muted">E ${fmt(tt.p)} · KH ${fmt(tt.c)} · F ${fmt(tt.f)}</span><strong>${fmt(tt.kcal)} kcal</strong></li>`);
+    const burned = burnedOn(d);
+    items.push(`<li data-date="${d}"><span>${dateLabel(d)}</span><span class="muted">E ${fmt(tt.p)} · KH ${fmt(tt.c)} · F ${fmt(tt.f)}${burned ? ` · 🏃 ${fmt(burned)}` : ''}</span><strong>${fmt(tt.kcal)} kcal</strong></li>`);
   }
   $('#historyList').innerHTML = items.join('') || '<li class="muted">Noch keine Einträge.</li>';
   renderGoalProgress();
@@ -754,10 +774,152 @@ async function lookupBarcode(code) {
   }
 }
 
+/* ---------- Aktivitäten ---------- */
+const actDialog = $('#actDialog');
+let actSelected = null;
+
+// Gewicht für die Berechnung: letzte Messung bis zum Tag, sonst Profil, sonst 70 kg
+function weightFor(date) {
+  const w = [...state.weights].filter(x => x.date <= date).sort((a, b) => a.ts.localeCompare(b.ts)).pop()
+    || [...state.weights].sort((a, b) => a.ts.localeCompare(b.ts))[0];
+  if (w) return { kg: w.kg, known: true };
+  const pw = Number(state.profile?.weight);
+  return pw >= 30 ? { kg: pw, known: true } : { kg: 70, known: false };
+}
+
+const actKcal = (met, minutes, kg) => Math.max(0, (met - 1) * kg * (minutes / 60));
+
+function renderActivities() {
+  const list = state.days[currentDate]?.activities || [];
+  const total = burnedOn(currentDate);
+  $('#actTotal').textContent = list.length ? `${fmt(total)} kcal verbraucht` : '';
+  $('#actList').innerHTML = list.map(a => `
+    <li class="entry">
+      <div class="e-main">
+        <div class="e-name">${a.icon ? a.icon + ' ' : ''}${esc(a.name)}</div>
+        <div class="e-sub">${a.minutes ? `${fmt(a.minutes)} min` : 'eigene Angabe'}</div>
+      </div>
+      <div class="e-right"><span class="burn">${fmt(a.kcal)} kcal</span><button class="del-btn" data-delact="${a.id}" aria-label="Löschen">✕</button></div>
+    </li>`).join('');
+  const factor = state.goals.actFactor ?? 1;
+  const note = $('#actNote');
+  note.hidden = !list.length || factor === 1;
+  note.textContent = factor === 0 ? 'Aktivitäten werden nur angezeigt, nicht zum Ziel addiert (Einstellungen).'
+    : `${fmt(factor * 100)} % davon werden zu deinem Tagesziel addiert (Einstellungen).`;
+}
+
+$('#actList').addEventListener('click', e => {
+  const b = e.target.closest('[data-delact]');
+  if (!b) return;
+  const day = state.days[currentDate];
+  const idx = day.activities.findIndex(a => a.id === b.dataset.delact);
+  if (idx < 0) return;
+  const [removed] = day.activities.splice(idx, 1);
+  save(); render();
+  toast(`„${removed.name}“ gelöscht`, { label: 'Rückgängig', fn: () => { day.activities.splice(idx, 0, removed); save(); render(); } });
+});
+
+function actStep(step) {
+  $('#actPickStep').hidden = step !== 'pick';
+  $('#actTimeStep').hidden = step !== 'time';
+  $('#actCustomStep').hidden = step !== 'custom';
+}
+
+function openActivity() {
+  $('#actTitle').textContent = `Aktivität · ${dateLabel(currentDate)}`;
+  $('#actSearch').value = '';
+  renderActResults();
+  actStep('pick');
+  actDialog.showModal();
+}
+$('#actAddBtn').onclick = openActivity;
+
+function renderActResults() {
+  const q = $('#actSearch').value;
+  const recentNames = state.recentActivities.map(r => r.name);
+  let list = filterByQuery(window.ACTIVITIES, q);
+  if (!q.trim()) {
+    const recent = state.recentActivities.map(r => ({ ...(window.ACTIVITIES.find(a => a.name === r.name) || r), lastMinutes: r.minutes, recent: true }));
+    list = [...recent, ...window.ACTIVITIES.filter(a => !recentNames.includes(a.name))];
+  }
+  const kg = weightFor(currentDate).kg;
+  const ul = $('#actResults');
+  ul.innerHTML = `<li data-custom><div><div>✏️ Eigene Angabe</div><div class="fr-sub">Kalorien direkt eintragen, z. B. von deiner Uhr</div></div></li>` +
+    list.map((a, i) => `
+      <li data-i="${i}">
+        <div><div>${a.icon || '🏃'} ${esc(a.name)}</div>
+        <div class="fr-sub">${a.recent ? `zuletzt ${fmt(a.lastMinutes)} min · ` : ''}≈ ${fmt(actKcal(a.met, 30, kg))} kcal pro 30 min</div></div>
+      </li>`).join('') +
+    (!list.length ? '<li class="empty">Nichts gefunden – nutze „Eigene Angabe“.</li>' : '');
+  ul._list = list;
+}
+$('#actSearch').addEventListener('input', renderActResults);
+$('#actSearch').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  $('#actResults li[data-i]')?.click();
+});
+$('#actResults').addEventListener('click', e => {
+  if (e.target.closest('[data-custom]')) {
+    $('#actCustomName').value = ''; $('#actCustomKcal').value = ''; $('#actCustomMin').value = '';
+    $('#actError').textContent = '';
+    actStep('custom');
+    setTimeout(() => $('#actCustomKcal').focus(), 50);
+    return;
+  }
+  const li = e.target.closest('li[data-i]');
+  if (!li) return;
+  actSelected = $('#actResults')._list[Number(li.dataset.i)];
+  const w = weightFor(currentDate);
+  $('#actSelName').textContent = `${actSelected.icon || '🏃'} ${actSelected.name}`;
+  $('#actSelInfo').textContent = `Berechnet mit ${fmtKg(w.kg)} kg Körpergewicht` + (w.known ? '' : ' (Standardwert – trag dein Gewicht ein für genauere Werte)');
+  $('#actMinutes').value = actSelected.lastMinutes || 30;
+  $('#actChips').innerHTML = [15, 30, 45, 60, 90].map(m => `<button type="button" class="chip" data-min="${m}">${m} min</button>`).join('');
+  updateActPreview();
+  actStep('time');
+  setTimeout(() => $('#actMinutes').select(), 50);
+});
+$('#actChips').addEventListener('click', e => {
+  const b = e.target.closest('[data-min]');
+  if (b) { $('#actMinutes').value = b.dataset.min; updateActPreview(); }
+});
+$('#actMinutes').addEventListener('input', updateActPreview);
+$('#actMinutes').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#actConfirmBtn').click(); } });
+$$('[data-act-back]').forEach(b => b.onclick = () => actStep('pick'));
+
+function updateActPreview() {
+  const min = parseFloat($('#actMinutes').value) || 0;
+  $('#actPreview').textContent = `≈ ${fmt(actKcal(actSelected.met, min, weightFor(currentDate).kg))} kcal zusätzlicher Verbrauch`;
+}
+
+function addActivity(a) {
+  const day = getDay(currentDate, true);
+  (day.activities ||= []).push({ id: uid(), ...a, kcal: Math.round(a.kcal) });
+  state.recentActivities = [{ name: a.name, minutes: a.minutes || 0, met: a.met, icon: a.icon }, ...state.recentActivities.filter(r => r.name !== a.name)].slice(0, 8);
+  save();
+  actDialog.close();
+  render();
+  const g = effGoals(currentDate);
+  toast(g.extra ? `${a.name.split(' (')[0]} eingetragen – Ziel jetzt ${fmt(g.kcal)} kcal` : `${a.name.split(' (')[0]} eingetragen`);
+}
+
+$('#actConfirmBtn').onclick = () => {
+  const min = parseFloat($('#actMinutes').value);
+  if (!(min > 0)) { $('#actMinutes').focus(); return; }
+  addActivity({ name: actSelected.name, icon: actSelected.icon, met: actSelected.met, minutes: min,
+    kcal: actKcal(actSelected.met, min, weightFor(currentDate).kg) });
+};
+$('#actCustomBtn').onclick = () => {
+  const kcal = parseFloat($('#actCustomKcal').value);
+  const min = parseFloat($('#actCustomMin').value) || 0;
+  if (!(kcal > 0)) { $('#actError').textContent = 'Bitte die verbrauchten Kalorien eingeben.'; $('#actCustomKcal').focus(); return; }
+  addActivity({ name: $('#actCustomName').value.trim() || 'Aktivität', icon: '✏️', minutes: min, kcal });
+};
+
 /* ---------- Ziele: Status, Serien, Fortschritt ---------- */
 // true = erreicht, false = verfehlt, null = nichts eingetragen / kein Ziel
 function dayStatus(date) {
-  const g = state.goals;
+  const g = effGoals(date);
   const day = state.days[date];
   const logged = !!(day && day.entries.length);
   const t = logged ? totals(day.entries) : zeroN();
@@ -812,7 +974,7 @@ function renderGoalProgress() {
   const tToday = totals(getDay(today()).entries);
   const st = status[6];
   for (const k of ['p', 'fib', 'water']) if (st[k] === false) st[k] = 'pending';
-  if (st.kcal === false && tToday.kcal < g.kcal * 0.8) st.kcal = 'pending';
+  if (st.kcal === false && tToday.kcal < effGoals(today()).kcal * 0.8) st.kcal = 'pending';
   const rows = [
     ['kcal', 'Kalorien'], ['p', 'Eiweiß'], ['fib', 'Ballaststoffe'], ['sug', 'Zucker'], ['salt', 'Salz'], ['water', 'Wasser'],
   ].filter(([k]) => g[k]);
@@ -1417,7 +1579,7 @@ $('#dishList').addEventListener('click', e => {
   if (li) openDishEditor(state.dishes.find(d => d.id === li.dataset.dish));
 });
 
-for (const d of [addDialog, foodDialog, scanDialog, dishDialog, weightDialog]) {
+for (const d of [addDialog, foodDialog, scanDialog, dishDialog, weightDialog, actDialog]) {
   d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
 }
 $('#foodSearch').addEventListener('keydown', e => {

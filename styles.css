@@ -322,3 +322,9 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .weight-plan p:last-child { margin: 0; }
 .weight-plan .status-ok { color: var(--accent); font-weight: 600; }
 .weight-plan .status-warn { color: var(--c); font-weight: 600; }
+
+/* Aktivitäten */
+.act-note { font-size: .8rem; margin: 8px 0 0; }
+.calc-hint { font-size: .8rem; margin: -4px 0 10px; }
+.kcal-line .act-plus { color: var(--accent); font-weight: 600; }
+.entry .e-right .burn { color: var(--accent); }

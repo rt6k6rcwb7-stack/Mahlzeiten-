@@ -15,6 +15,7 @@ Kein Server, kein Konto: alle Daten bleiben lokal im Browser (`localStorage`).
 - **Weitere Nährstoffe**: Ballaststoffe (Mindestziel), Zucker und Salz (Maximum) – aus eingebauten Lebensmitteln, Open Food Facts und eigenen Lebensmitteln
 - **Gewichtsziel mit Datum**: nötiges Tempo pro Woche, Trend der letzten 4 Wochen und Prognose, wann das Ziel erreicht wird
 - **Ziele & Serien**: Wochenübersicht pro Ziel, aktuelle Serie und Rekord-Serie
+- **Aktivitäten**: über 40 Sportarten/Tätigkeiten (MET-Werte, Verbrauch nach Körpergewicht) oder eigene kcal-Angabe; der Verbrauch erhöht das Tagesziel (100/75/50/0 % einstellbar)
 - „Zuletzt“ verwendet und „Schnell“-Eintrag (nur kcal/Makros eingeben)
 - Eigene Lebensmittel anlegen (Werte von der Verpackung)
 - Verlauf: 7-Tage-Diagramm und 30-Tage-Liste

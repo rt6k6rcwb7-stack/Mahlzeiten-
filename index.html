@@ -36,7 +36,7 @@
           <div class="macro" data-m="p"><span class="m-name">Eiweiß</span><div class="bar"><i></i></div><span class="m-val"></span></div>
           <div class="macro" data-m="c"><span class="m-name">Kohlenhydrate</span><div class="bar"><i></i></div><span class="m-val"></span></div>
           <div class="macro" data-m="f"><span class="m-name">Fett</span><div class="bar"><i></i></div><span class="m-val"></span></div>
-          <div class="kcal-line"><span id="kcalEaten">0</span> von <span id="kcalGoal">0</span> kcal</div>
+          <div class="kcal-line"><span id="kcalEaten">0</span> von <span id="kcalGoal">0</span> kcal <span id="kcalAct" class="act-plus"></span></div>
         </div>
       </div>
       <p class="streak-line" id="streakLine" hidden></p>
@@ -59,6 +59,13 @@
       <div class="card weight-card">
         <div><strong>Gewicht</strong> <span id="weightVal" class="muted"></span></div>
         <button class="chip" id="weightAddBtn" type="button">+ Eintragen</button>
+      </div>
+
+      <div class="card">
+        <div class="meal-head"><h2 style="margin:0">Aktivitäten</h2><span class="kcal" id="actTotal"></span></div>
+        <ul class="entries" id="actList"></ul>
+        <button class="add-btn" id="actAddBtn" type="button">+ Aktivität</button>
+        <p class="muted act-note" id="actNote" hidden></p>
       </div>
 
       <div id="meals"></div>
@@ -128,6 +135,7 @@
             <option value="1.9">Extrem aktiv – Leistungssport</option>
           </select>
         </label>
+        <p class="muted calc-hint">Trägst du Sport unter „Aktivitäten“ ein, wähle hier „Kaum aktiv“ oder „Leicht aktiv“ – sonst zählt der Sport doppelt.</p>
         <label>Ziel
           <select name="aim">
             <option value="-500">Abnehmen (ca. 0,5 kg pro Woche)</option>
@@ -163,6 +171,15 @@
           <label>Zielgewicht (kg)<input type="number" name="weight" min="0" step="0.1" inputmode="decimal" placeholder="optional"></label>
           <label>Zieldatum<input type="date" name="weightDate"></label>
         </div>
+        <p class="goal-group">Aktivitäten</p>
+        <label>Verbrauchte Kalorien zum Tagesziel addieren
+          <select name="actFactor">
+            <option value="1">100 % anrechnen</option>
+            <option value="0.75">75 % anrechnen</option>
+            <option value="0.5">50 % anrechnen (vorsichtig)</option>
+            <option value="0">Nicht anrechnen, nur anzeigen</option>
+          </select>
+        </label>
         <button class="btn primary" type="submit">Speichern</button>
       </form>
 
@@ -287,6 +304,43 @@
     </form>
   </dialog>
 
+  <!-- Dialog: Aktivität -->
+  <dialog id="actDialog">
+    <form class="sheet" id="actForm" novalidate>
+      <header class="sheet-head">
+        <h3 id="actTitle">Aktivität hinzufügen</h3>
+        <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
+      </header>
+      <div id="actPickStep">
+        <input type="search" id="actSearch" placeholder="Aktivität suchen …" autocomplete="off">
+        <ul id="actResults" class="food-results"></ul>
+      </div>
+      <div id="actTimeStep" hidden>
+        <p class="selected-food"><strong id="actSelName"></strong><br><span class="muted" id="actSelInfo"></span></p>
+        <label>Dauer (Minuten)<input type="number" id="actMinutes" min="1" max="1440" step="1" inputmode="numeric"></label>
+        <div class="row" id="actChips"></div>
+        <p class="preview" id="actPreview"></p>
+        <div class="row">
+          <button class="btn" type="button" data-act-back>Zurück</button>
+          <button class="btn primary" type="button" id="actConfirmBtn">Eintragen</button>
+        </div>
+      </div>
+      <div id="actCustomStep" hidden>
+        <p class="muted">Z. B. die Aktivkalorien von deiner Uhr oder Fitness-App.</p>
+        <label>Bezeichnung<input id="actCustomName" placeholder="z. B. Training laut Uhr" autocomplete="off"></label>
+        <div class="row" style="margin-top:0">
+          <label>Kalorien (kcal)<input id="actCustomKcal" type="number" min="1" inputmode="numeric"></label>
+          <label>Dauer (min, optional)<input id="actCustomMin" type="number" min="1" inputmode="numeric"></label>
+        </div>
+        <p class="form-error" id="actError" role="alert"></p>
+        <div class="row">
+          <button class="btn" type="button" data-act-back>Zurück</button>
+          <button class="btn primary" type="button" id="actCustomBtn">Eintragen</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Dialog: Gewicht -->
   <dialog id="weightDialog">
     <form class="sheet" id="weightForm" novalidate>
@@ -355,6 +409,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="foods.js"></script>
+  <script src="activities.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
