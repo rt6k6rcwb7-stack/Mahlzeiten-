@@ -9,11 +9,12 @@ const MEALS = [
   { id: 'snack', label: 'Snacks' },
 ];
 const DEFAULT_STATE = {
-  goals: { kcal: 2000, p: 100, c: 230, f: 70, water: 2000 },
+  goals: { kcal: 2000, p: 100, c: 230, f: 70, water: 2000, weight: 0 },
   days: {},          // 'YYYY-MM-DD' -> { entries: [], water: 0 }
   customFoods: [],   // gleiche Struktur wie BASE_FOODS, plus id
   recent: [],        // zuletzt verwendete Lebensmittel (Snapshot)
   dishes: [],        // gespeicherte Gerichte: { id, name, portions, ingredients: [...] }
+  weights: [],       // Messungen: { id, ts: 'YYYY-MM-DDTHH:MM', date, kg, fat (%), source }
 };
 
 function loadState() {
@@ -143,6 +144,10 @@ function renderDay() {
   }
 
   $('#waterVal').textContent = `${fmt(day.water || 0)} / ${fmt(g.water)} ml`;
+  const wToday = latestWeightOn(currentDate);
+  const wPrev = wToday || [...sortedWeights()].reverse().find(w => w.date < currentDate);
+  $('#weightVal').textContent = wToday ? `${fmtKg(wToday.kg)} kg`
+    : wPrev ? `zuletzt ${fmtKg(wPrev.kg)} kg (${dateLabel(wPrev.date)})` : 'noch nichts eingetragen';
 
   // Mahlzeiten
   const wrap = $('#meals');
@@ -411,6 +416,7 @@ function renderHistory() {
     items.push(`<li data-date="${d}"><span>${dateLabel(d)}</span><span class="muted">E ${fmt(tt.p)} · KH ${fmt(tt.c)} · F ${fmt(tt.f)}</span><strong>${fmt(tt.kcal)} kcal</strong></li>`);
   }
   $('#historyList').innerHTML = items.join('') || '<li class="muted">Noch keine Einträge.</li>';
+  renderWeight();
 }
 function jumpTo(e) {
   const el = e.target.closest('[data-date]');
@@ -424,7 +430,7 @@ $('#historyList').addEventListener('click', jumpTo);
 /* ---------- Einstellungen ---------- */
 const goalsForm = $('#goalsForm');
 function renderSettings() {
-  for (const k of Object.keys(state.goals)) goalsForm.elements[k].value = state.goals[k];
+  for (const k of Object.keys(state.goals)) goalsForm.elements[k].value = (k === 'weight' && !state.goals[k]) ? '' : state.goals[k];
   $('#dishList').innerHTML = state.dishes.map(d => {
     const f = dishToFood(d);
     return `<li data-dish="${d.id}"><div><div>${esc(d.name)}</div>
@@ -705,6 +711,271 @@ async function lookupBarcode(code) {
   }
 }
 
+/* ---------- Gewicht ---------- */
+const fmtKg = n => (Math.round(n * 10) / 10).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const sortedWeights = () => [...state.weights].sort((a, b) => a.ts.localeCompare(b.ts));
+const latestWeightOn = date => sortedWeights().filter(w => w.date === date).pop();
+
+// Pro Tag die letzte Messung
+function dailyWeights() {
+  const byDay = new Map();
+  for (const w of sortedWeights()) byDay.set(w.date, w);
+  return [...byDay.values()];
+}
+
+let weightRange = 90;
+$('#weightRange').addEventListener('click', e => {
+  const b = e.target.closest('[data-range]');
+  if (!b) return;
+  weightRange = Number(b.dataset.range);
+  $$('#weightRange button').forEach(x => x.classList.toggle('active', x === b));
+  renderWeight();
+});
+
+function renderWeight() {
+  const all = dailyWeights();
+  const from = weightRange ? addDays(today(), -weightRange + 1) : '0000';
+  const pts = all.filter(w => w.date >= from);
+  const chart = $('#weightChart');
+  const goal = Number(state.goals.weight) || 0;
+
+  if (!pts.length) {
+    chart.innerHTML = `<div class="empty">${all.length ? 'Keine Messungen in diesem Zeitraum.' : 'Noch keine Messungen – trag dein Gewicht ein oder importiere es aus Withings.'}</div>`;
+  } else {
+    const W = 340, H = 170, L = 34, R = 10, T = 12, B = 22;
+    const t0 = parseIso(weightRange ? from : pts[0].date).getTime();
+    const t1 = parseIso(today()).getTime();
+    const span = Math.max(t1 - t0, 86400000);
+    let lo = Math.min(...pts.map(p => p.kg)), hi = Math.max(...pts.map(p => p.kg));
+    if (goal && goal > lo - 5 && goal < hi + 5) { lo = Math.min(lo, goal); hi = Math.max(hi, goal); }
+    const pad = Math.max(0.5, (hi - lo) * 0.12);
+    lo -= pad; hi += pad;
+    const x = d => L + ((parseIso(d).getTime() - t0) / span) * (W - L - R);
+    const y = kg => T + (1 - (kg - lo) / (hi - lo)) * (H - T - B);
+    const ticks = [lo + pad, (lo + hi) / 2, hi - pad];
+    const fmtD = d => parseIso(d).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+    const showDots = pts.length <= 60;
+    chart.innerHTML = `
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Gewichtsverlauf">
+        ${ticks.map(t => `<line class="wgrid" x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/><text class="wlabel" x="${L - 4}" y="${y(t) + 4}" text-anchor="end">${fmtKg(t)}</text>`).join('')}
+        ${goal && goal >= lo && goal <= hi ? `<line class="wgoal" x1="${L}" x2="${W - R}" y1="${y(goal)}" y2="${y(goal)}"/><text class="wlabel" x="${W - R}" y="${y(goal) - 4}" text-anchor="end">Ziel ${fmtKg(goal)}</text>` : ''}
+        <polyline class="wline" points="${pts.map(p => `${x(p.date).toFixed(1)},${y(p.kg).toFixed(1)}`).join(' ')}"/>
+        ${pts.map((p, i) => (showDots || i === pts.length - 1)
+          ? `<circle class="wdot${i === pts.length - 1 ? ' last' : ''}" cx="${x(p.date).toFixed(1)}" cy="${y(p.kg).toFixed(1)}" r="${i === pts.length - 1 ? 4 : 3}"><title>${fmtD(p.date)}: ${fmtKg(p.kg)} kg</title></circle>` : '').join('')}
+        <text class="wlabel" x="${L}" y="${H - 6}">${fmtD(weightRange ? from : pts[0].date)}</text>
+        <text class="wlabel" x="${W - R}" y="${H - 6}" text-anchor="end">${fmtD(today())}</text>
+      </svg>`;
+  }
+
+  const last = all[all.length - 1];
+  const parts = [];
+  if (last) parts.push(`Aktuell ${fmtKg(last.kg)} kg${last.fat ? ` · ${fmtKg(last.fat)} % Fett` : ''}`);
+  if (pts.length >= 2) {
+    const diff = pts[pts.length - 1].kg - pts[0].kg;
+    parts.push(`${diff > 0 ? '+' : diff < 0 ? '−' : '±'}${fmtKg(Math.abs(diff))} kg ${weightRange ? `in ${weightRange} Tagen` : 'insgesamt'}`);
+  }
+  if (last && goal) {
+    const d = last.kg - goal;
+    parts.push(Math.abs(d) < 0.05 ? 'Ziel erreicht 🎉' : `noch ${fmtKg(Math.abs(d))} kg bis zum Ziel`);
+  }
+  $('#weightStats').textContent = parts.join(' · ');
+
+  $('#weightList').innerHTML = [...sortedWeights()].reverse().slice(0, 100).map(w => `
+    <li><span>${dateLabel(w.date)}${w.ts.length > 10 && w.source === 'withings' ? ` <span class="muted">${w.ts.slice(11, 16)}</span>` : ''}${w.source === 'withings' ? '<span class="src-tag">Withings</span>' : ''}</span>
+    <span><strong>${fmtKg(w.kg)} kg</strong>${w.fat ? ` <span class="muted">${fmtKg(w.fat)} %</span>` : ''}<button class="del-btn" data-delweight="${w.id}" aria-label="Messung löschen">✕</button></span></li>`).join('');
+}
+
+$('#weightList').addEventListener('click', e => {
+  const b = e.target.closest('[data-delweight]');
+  if (!b) return;
+  const idx = state.weights.findIndex(w => w.id === b.dataset.delweight);
+  if (idx < 0) return;
+  const [removed] = state.weights.splice(idx, 1);
+  save(); render();
+  toast('Messung gelöscht', { label: 'Rückgängig', fn: () => { state.weights.push(removed); save(); render(); } });
+});
+
+const weightDialog = $('#weightDialog');
+const weightForm = $('#weightForm');
+function openWeightDialog() {
+  const date = currentView === 'day' ? currentDate : today();
+  const existing = state.weights.find(w => w.date === date && w.source === 'manual');
+  const last = sortedWeights().pop();
+  weightForm.elements.date.value = date;
+  weightForm.elements.date.max = today();
+  weightForm.elements.kg.value = existing ? existing.kg : last ? last.kg : '';
+  weightForm.elements.fat.value = existing?.fat || '';
+  $('#weightError').textContent = '';
+  weightDialog.showModal();
+  setTimeout(() => weightForm.elements.kg.select(), 50);
+}
+$('#weightAddBtn').onclick = openWeightDialog;
+$('#weightAddBtn2').onclick = openWeightDialog;
+weightForm.addEventListener('submit', e => {
+  e.preventDefault();
+  const f = weightForm.elements;
+  const kg = parseFloat(String(f.kg.value).replace(',', '.'));
+  const fat = parseFloat(String(f.fat.value).replace(',', '.'));
+  const date = f.date.value || today();
+  if (!(kg >= 20 && kg <= 400)) { $('#weightError').textContent = 'Bitte ein Gewicht zwischen 20 und 400 kg eingeben.'; f.kg.focus(); return; }
+  // Pro Tag nur eine manuelle Messung – erneutes Eintragen korrigiert sie
+  state.weights = state.weights.filter(w => !(w.date === date && w.source === 'manual'));
+  const now = new Date();
+  const time = date === today() ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}` : '12:00';
+  state.weights.push({ id: uid(), ts: `${date}T${time}`, date, kg: r1(kg), fat: fat > 0 ? r1(fat) : null, source: 'manual' });
+  save();
+  weightDialog.close();
+  render();
+  toast(`${fmtKg(kg)} kg eingetragen`);
+});
+
+/* --- Withings-Import (ZIP-Export oder weight.csv) --- */
+async function readZipEntry(buf, pick) {
+  const dv = new DataView(buf);
+  let eocd = -1;
+  for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('Keine gültige ZIP-Datei.');
+  const count = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  const entries = [];
+  const dec = new TextDecoder();
+  for (let n = 0; n < count && dv.getUint32(off, true) === 0x02014b50; n++) {
+    const nlen = dv.getUint16(off + 28, true), elen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true);
+    entries.push({
+      method: dv.getUint16(off + 10, true), flags: dv.getUint16(off + 8, true), csize: dv.getUint32(off + 20, true),
+      lho: dv.getUint32(off + 42, true), name: dec.decode(new Uint8Array(buf, off + 46, nlen)),
+    });
+    off += 46 + nlen + elen + clen;
+  }
+  const e = pick(entries);
+  if (!e) return null;
+  if (e.flags & 1) throw new Error('Die ZIP-Datei ist verschlüsselt. Entpacke sie und wähle die weight.csv.');
+  const start = e.lho + 30 + dv.getUint16(e.lho + 26, true) + dv.getUint16(e.lho + 28, true);
+  const data = new Uint8Array(buf, start, e.csize);
+  if (e.method === 0) return dec.decode(data);
+  if (e.method === 8 && 'DecompressionStream' in window) {
+    const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return await new Response(stream).text();
+  }
+  throw new Error('ZIP konnte nicht entpackt werden. Entpacke sie und wähle die weight.csv.');
+}
+
+function parseCsv(text) {
+  text = text.replace(/^\uFEFF/, '');
+  const firstLine = text.split(/\r?\n/, 1)[0];
+  const delim = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';' : ',';
+  const rows = [];
+  let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === delim) { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim()));
+}
+
+function parseTimestamp(raw) {
+  const s = String(raw).trim();
+  let m;
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s) && !isNaN(Date.parse(s))) {
+    const d = new Date(s);
+    return `${isoDate(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/))) {
+    return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}T${(m[4] || '12').padStart(2, '0')}:${m[5] || '00'}`;
+  }
+  if ((m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:,?\s+(\d{1,2}):(\d{2}))?/))) {
+    return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}T${(m[4] || '12').padStart(2, '0')}:${m[5] || '00'}`;
+  }
+  return null;
+}
+
+const num = v => {
+  const n = parseFloat(String(v ?? '').trim().replace(',', '.'));
+  return isNaN(n) ? null : n;
+};
+
+function parseWithingsCsv(text) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) throw new Error('Die Datei enthält keine Messungen.');
+  const head = rows[0].map(h => h.trim().toLowerCase());
+  let dateIdx = head.findIndex(h => /^(date|datum)/.test(h) || /date|datum|zeit|time/.test(h));
+  if (dateIdx < 0) dateIdx = 0;
+  const weightIdx = head.findIndex(h => /weight|gewicht/.test(h) && !/fat|fett|muscle|muskel|bone|knochen|water|wasser|hydration|lean|mager/.test(h));
+  if (weightIdx < 0) throw new Error('Keine Gewichtsspalte gefunden. Ist das die weight.csv aus dem Withings-Export?');
+  const toKg = /\blbs?\b|pound/.test(head[weightIdx]) ? 0.45359237 : 1;
+  const fatIdx = head.findIndex(h => /fat|fett/.test(h) && !/free|frei/.test(h));
+  const fatIsPercent = fatIdx >= 0 && /%|ratio|anteil|percent/.test(head[fatIdx]);
+  const fatToKg = fatIdx >= 0 && /\blbs?\b|pound/.test(head[fatIdx]) ? 0.45359237 : 1;
+
+  const out = [];
+  for (const r of rows.slice(1)) {
+    const ts = parseTimestamp(r[dateIdx]);
+    let kg = num(r[weightIdx]);
+    if (!ts || kg === null) continue;
+    kg *= toKg;
+    if (kg < 20 || kg > 400) continue;
+    let fat = fatIdx >= 0 ? num(r[fatIdx]) : null;
+    if (fat !== null) fat = fatIsPercent ? fat : (fat * fatToKg) / kg * 100;
+    out.push({ ts, date: ts.slice(0, 10), kg: r1(kg), fat: fat && fat > 0 && fat < 80 ? r1(fat) : null });
+  }
+  if (!out.length) throw new Error('Keine gültigen Messungen in der Datei gefunden.');
+  return out;
+}
+
+function importWeights(list) {
+  const seen = new Set(state.weights.map(w => `${w.ts}|${w.kg}`));
+  let added = 0, skipped = 0;
+  for (const m of list) {
+    const key = `${m.ts}|${m.kg}`;
+    if (seen.has(key)) { skipped++; continue; }
+    seen.add(key);
+    state.weights.push({ id: uid(), ...m, source: 'withings' });
+    added++;
+  }
+  save();
+  return { added, skipped };
+}
+
+$('#withingsFile').onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    const isZip = new DataView(buf).byteLength > 4 && new DataView(buf).getUint32(0, true) === 0x04034b50;
+    let text;
+    if (isZip) {
+      text = await readZipEntry(buf, entries => {
+        const base = n => n.split('/').pop().toLowerCase();
+        return entries.find(x => base(x.name) === 'weight.csv')
+          || entries.find(x => /weight|gewicht/.test(base(x.name)) && base(x.name).endsWith('.csv') && !/raw/.test(base(x.name)));
+      });
+      if (text === null) throw new Error('In der ZIP-Datei wurde keine weight.csv gefunden.');
+    } else {
+      text = new TextDecoder().decode(buf);
+    }
+    const { added, skipped } = importWeights(parseWithingsCsv(text));
+    render();
+    toast(added ? `${added} Messung${added === 1 ? '' : 'en'} importiert${skipped ? `, ${skipped} schon vorhanden` : ''}`
+      : `Keine neuen Messungen (${skipped} schon vorhanden)`);
+  } catch (err) {
+    console.warn(err);
+    toast(err.message || 'Datei konnte nicht gelesen werden');
+  } finally {
+    e.target.value = '';
+  }
+};
+
 /* ---------- Gerichte ---------- */
 const dishDialog = $('#dishDialog');
 const dishForm = $('#dishForm');
@@ -881,7 +1152,7 @@ $('#dishList').addEventListener('click', e => {
   if (li) openDishEditor(state.dishes.find(d => d.id === li.dataset.dish));
 });
 
-for (const d of [addDialog, foodDialog, scanDialog, dishDialog]) {
+for (const d of [addDialog, foodDialog, scanDialog, dishDialog, weightDialog]) {
   d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
 }
 $('#foodSearch').addEventListener('keydown', e => {

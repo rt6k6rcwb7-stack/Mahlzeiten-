@@ -9,6 +9,8 @@ Kein Server, kein Konto: alle Daten bleiben lokal im Browser (`localStorage`).
 - Lebensmittel-Suche (~65 gängige Lebensmittel, Werte pro 100 g/ml) mit Mengen- und Portionsauswahl
 - **Barcode-Scanner**: Produkt scannen → Nährwerte kommen aus [Open Food Facts](https://world.openfoodfacts.org); einmal gescannte Produkte werden lokal gespeichert und funktionieren danach auch offline. Unbekannte Produkte trägst du einmal von der Packung ein.
 - **Gerichte**: Zutaten mit Mengen und Portionszahl speichern (z. B. Chili für 4 Portionen) oder eine eingetragene Mahlzeit per „Als Gericht speichern“ übernehmen; beim Eintragen nur noch die Portionen wählen
+- **Gewicht**: manuell eintragen (optional mit Körperfett), Zielgewicht, Verlaufsdiagramm (30 Tage bis alles)
+- **Withings-Import**: ZIP-Export („Meine Daten herunterladen“) oder `weight.csv` direkt einlesen; doppelte Messungen werden übersprungen
 - „Zuletzt“ verwendet und „Schnell“-Eintrag (nur kcal/Makros eingeben)
 - Eigene Lebensmittel anlegen (Werte von der Verpackung)
 - Verlauf: 7-Tage-Diagramm und 30-Tage-Liste

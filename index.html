@@ -49,6 +49,11 @@
         </div>
       </div>
 
+      <div class="card weight-card">
+        <div><strong>Gewicht</strong> <span id="weightVal" class="muted"></span></div>
+        <button class="chip" id="weightAddBtn" type="button">+ Eintragen</button>
+      </div>
+
       <div id="meals"></div>
     </section>
 
@@ -59,6 +64,25 @@
         <div id="weekChart" class="week-chart"></div>
         <p class="muted" id="weekAvg"></p>
       </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Gewicht</h2>
+          <button class="chip" id="weightAddBtn2" type="button">+ Eintragen</button>
+        </div>
+        <div class="segmented" id="weightRange">
+          <button type="button" data-range="30">30 Tage</button>
+          <button type="button" class="active" data-range="90">90 Tage</button>
+          <button type="button" data-range="365">1 Jahr</button>
+          <button type="button" data-range="0">Alles</button>
+        </div>
+        <div id="weightChart" class="weight-chart"></div>
+        <p class="muted" id="weightStats"></p>
+        <details class="weight-details">
+          <summary>Messungen anzeigen</summary>
+          <ul id="weightList" class="plain-list" data-empty="Noch keine Messungen."></ul>
+        </details>
+      </div>
+
       <div class="card">
         <h2>Letzte 30 Tage</h2>
         <ul id="historyList" class="history-list"></ul>
@@ -74,6 +98,7 @@
         <label>Kohlenhydrate (g)<input type="number" name="c" min="0" inputmode="numeric"></label>
         <label>Fett (g)<input type="number" name="f" min="0" inputmode="numeric"></label>
         <label>Wasser (ml)<input type="number" name="water" min="0" step="250" inputmode="numeric"></label>
+        <label>Zielgewicht (kg, optional)<input type="number" name="weight" min="0" step="0.1" inputmode="decimal" placeholder="z. B. 75"></label>
         <button class="btn primary" type="submit">Speichern</button>
       </form>
 
@@ -87,6 +112,17 @@
         <h2>Eigene Lebensmittel</h2>
         <ul id="customFoodList" class="plain-list" data-empty="Noch keine eigenen Lebensmittel."></ul>
         <button class="btn" id="newFoodBtn" type="button">+ Neues Lebensmittel</button>
+      </div>
+
+      <div class="card">
+        <h2>Gewicht aus Withings importieren</h2>
+        <ol class="steps muted">
+          <li>In der Withings-App oder auf withings.com in den Einstellungen deines Kontos <strong>„Meine Daten herunterladen“</strong> wählen.</li>
+          <li>Die ZIP-Datei aus der E-Mail bzw. dem Download speichern.</li>
+          <li>Hier die <strong>ZIP-Datei</strong> oder die darin enthaltene <strong>weight.csv</strong> auswählen.</li>
+        </ol>
+        <p class="muted">Bereits vorhandene Messungen werden erkannt und nicht doppelt importiert – du kannst also jederzeit einen neuen Export importieren.</p>
+        <label class="btn">Datei auswählen<input type="file" id="withingsFile" accept=".csv,.zip,text/csv,application/zip" hidden></label>
       </div>
 
       <div class="card">
@@ -179,6 +215,23 @@
         <label>Fett<input name="f" type="number" min="0" step="0.1" value="0" inputmode="decimal"></label>
       </div>
       <button class="btn primary" value="save">Speichern</button>
+    </form>
+  </dialog>
+
+  <!-- Dialog: Gewicht -->
+  <dialog id="weightDialog">
+    <form class="sheet" id="weightForm" novalidate>
+      <header class="sheet-head">
+        <h3>Gewicht eintragen</h3>
+        <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
+      </header>
+      <div class="row" style="margin-top:0">
+        <label>Datum<input type="date" name="date"></label>
+        <label>Gewicht (kg)<input name="kg" type="number" step="0.1" min="20" max="400" inputmode="decimal"></label>
+      </div>
+      <label>Körperfett in % (optional)<input name="fat" type="number" step="0.1" min="1" max="80" inputmode="decimal"></label>
+      <p class="form-error" id="weightError" role="alert"></p>
+      <button class="btn primary" type="submit" style="width:100%">Speichern</button>
     </form>
   </dialog>
 
