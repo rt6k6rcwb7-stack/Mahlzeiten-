@@ -221,7 +221,7 @@ function setPickSrc(src) {
   $$('#pickTabs button').forEach(b => b.classList.toggle('active', b.dataset.src === src));
   $('#quickForm').hidden = src !== 'quick';
   $('#foodResults').hidden = src === 'quick';
-  $('#foodSearch').hidden = src === 'quick';
+  $('#searchRow').hidden = src === 'quick';
   renderResults();
 }
 $('#pickTabs').addEventListener('click', e => {
@@ -246,7 +246,7 @@ function renderResults() {
   }
   ul.innerHTML = list.slice(0, 60).map((f, i) => `
     <li data-i="${i}">
-      <div><div>${esc(f.name)}${f.custom ? ' ⭐' : ''}</div>
+      <div><div>${esc(f.name)}${f.barcode ? ' 📦' : f.custom ? ' ⭐' : ''}</div>
       <div class="fr-sub">${f.quick ? 'Schnelleintrag' : `pro 100 ${f.unit} · E ${fmt1(f.p)} · KH ${fmt1(f.c)} · F ${fmt1(f.f)}`}</div></div>
       <div class="fr-kcal">${fmt(f.kcal)} kcal</div>
     </li>`).join('');
@@ -379,17 +379,40 @@ goalsForm.addEventListener('submit', e => {
 });
 
 const foodDialog = $('#foodDialog');
-$('#newFoodBtn').onclick = () => { $('#foodForm').reset(); foodDialog.showModal(); };
+let selectAfterFoodSave = false;
+function openFoodDialog(prefill = {}, selectAfterSave = false, message = '') {
+  const form = $('#foodForm');
+  form.reset();
+  form.elements.barcode.value = prefill.barcode || '';
+  if (prefill.name) form.elements.name.value = prefill.name;
+  const info = $('#foodBarcodeInfo');
+  info.hidden = !prefill.barcode && !message;
+  info.textContent = [message, prefill.barcode ? `Barcode ${prefill.barcode} – beim nächsten Scan wird das Produkt direkt erkannt.` : '']
+    .filter(Boolean).join(' ');
+  selectAfterFoodSave = selectAfterSave;
+  foodDialog.showModal();
+}
+$('#newFoodBtn').onclick = () => openFoodDialog();
 $('#foodForm').addEventListener('submit', e => {
   if (e.submitter?.value !== 'save') return;
   const f = e.target.elements;
-  state.customFoods.unshift({
-    id: uid(), name: f.name.value.trim(), unit: f.unit.value,
+  const food = saveCustomFood({
+    name: f.name.value.trim(), unit: f.unit.value,
     portion: Number(f.portion.value) || 100,
     kcal: Number(f.kcal.value) || 0, p: Number(f.p.value) || 0, c: Number(f.c.value) || 0, f: Number(f.f.value) || 0,
+    barcode: f.barcode.value || undefined,
   });
-  save(); renderSettings(); toast('Lebensmittel gespeichert');
+  renderSettings(); toast('Lebensmittel gespeichert');
+  if (selectAfterFoodSave && addDialog.open) selectFood({ ...food, custom: true });
+  selectAfterFoodSave = false;
 });
+
+function saveCustomFood(food) {
+  const entry = { id: uid(), ...food };
+  state.customFoods = [entry, ...state.customFoods.filter(x => !food.barcode || x.barcode !== food.barcode)];
+  save();
+  return entry;
+}
 $('#customFoodList').addEventListener('click', e => {
   const b = e.target.closest('[data-delfood]');
   if (!b) return;
@@ -439,7 +462,180 @@ function render() {
 }
 
 // Dialoge per Klick auf den Hintergrund schließen
-for (const d of [addDialog, foodDialog]) {
+/* ---------- Barcode-Scanner ---------- */
+const scanDialog = $('#scanDialog');
+const scanVideo = $('#scanVideo');
+const BARCODE_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+let scanStream = null;
+let scanTimer = null;
+let scanBusy = false;
+let detectorPromise = null;
+
+const setScanStatus = msg => { $('#scanStatus').textContent = msg; };
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = src; el.onload = resolve; el.onerror = () => reject(new Error('load ' + src));
+    document.head.append(el);
+  });
+}
+
+// Natives BarcodeDetector (Android/Chrome) oder lokale WebAssembly-Variante (z. B. iPhone)
+function getDetector() {
+  if (!detectorPromise) {
+    detectorPromise = (async () => {
+      if ('BarcodeDetector' in window) {
+        try {
+          const supported = await window.BarcodeDetector.getSupportedFormats();
+          if (BARCODE_FORMATS.some(f => supported.includes(f))) {
+            return new window.BarcodeDetector({ formats: BARCODE_FORMATS.filter(f => supported.includes(f)) });
+          }
+        } catch {}
+      }
+      if (!window.BarcodeDetectionAPI) await loadScript('vendor/barcode-detector.js');
+      const api = window.BarcodeDetectionAPI;
+      const wasmUrl = new URL('vendor/zxing_reader.wasm', location.href).href;
+      api.setZXingModuleOverrides({ locateFile: (path, prefix) => path.endsWith('.wasm') ? wasmUrl : prefix + path });
+      await api.prepareZXingModule({ fireImmediately: true });
+      return new api.BarcodeDetector({ formats: BARCODE_FORMATS });
+    })();
+    detectorPromise.catch(() => { detectorPromise = null; });
+  }
+  return detectorPromise;
+}
+
+async function openScanner() {
+  $('#manualCode').value = '';
+  setScanStatus('Kamera wird gestartet …');
+  scanDialog.showModal();
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setScanStatus('Kamera wird von diesem Browser nicht unterstützt. Gib die Nummer unten ein.');
+    return;
+  }
+  try {
+    const [stream, detector] = await Promise.all([
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
+      }),
+      getDetector(),
+    ]);
+    if (!scanDialog.open) { stream.getTracks().forEach(t => t.stop()); return; }
+    scanStream = stream;
+    scanVideo.srcObject = stream;
+    await scanVideo.play();
+    setScanStatus('Halte den Barcode in den Rahmen.');
+    scanLoop(detector);
+  } catch (err) {
+    console.warn(err);
+    const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+    setScanStatus(denied
+      ? 'Kein Kamerazugriff. Erlaube die Kamera in den Browser-Einstellungen oder gib die Nummer unten ein.'
+      : 'Kamera konnte nicht gestartet werden. Gib die Nummer unten ein.');
+  }
+}
+
+function scanLoop(detector) {
+  clearTimeout(scanTimer);
+  scanTimer = setTimeout(async () => {
+    if (!scanStream || !scanDialog.open) return;
+    if (scanVideo.readyState >= 2 && !scanBusy) {
+      try {
+        const codes = await detector.detect(scanVideo);
+        const code = codes.find(c => /^\d{6,14}$/.test(c.rawValue));
+        if (code) {
+          navigator.vibrate?.(60);
+          stopCamera();
+          return lookupBarcode(code.rawValue);
+        }
+      } catch (err) { console.warn(err); }
+    }
+    scanLoop(detector);
+  }, 180);
+}
+
+function stopCamera() {
+  clearTimeout(scanTimer);
+  if (scanStream) scanStream.getTracks().forEach(t => t.stop());
+  scanStream = null;
+  scanVideo.srcObject = null;
+}
+scanDialog.addEventListener('close', stopCamera);
+
+$('#scanBtn').onclick = openScanner;
+$('#manualCodeForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const code = $('#manualCode').value.replace(/\D/g, '');
+  if (code.length < 6) { setScanStatus('Bitte eine gültige Barcode-Nummer eingeben (8–13 Ziffern).'); return; }
+  stopCamera();
+  lookupBarcode(code);
+});
+
+// Gleiche Codes können als EAN-13 (mit führender 0) oder UPC-A vorliegen
+const sameBarcode = (a, b) => a.replace(/^0+/, '') === b.replace(/^0+/, '');
+
+async function fetchProduct(code) {
+  const fields = 'product_name,product_name_de,generic_name_de,brands,nutriments,serving_quantity,product_quantity_unit,quantity';
+  const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${fields}&lc=de`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  return data.status === 1 ? data.product : null;
+}
+
+function productToFood(code, p) {
+  const n = p.nutriments || {};
+  const num = v => (v === undefined || v === null || v === '' || isNaN(Number(v))) ? null : Number(v);
+  let kcal = num(n['energy-kcal_100g']);
+  if (kcal === null && num(n['energy_100g']) !== null) kcal = num(n['energy_100g']) / 4.184; // kJ -> kcal
+  const brand = (p.brands || '').split(',')[0].trim();
+  let name = (p.product_name_de || p.product_name || p.generic_name_de || '').trim();
+  if (brand && name && !norm(name).includes(norm(brand))) name += ` (${brand})`;
+  if (!name) name = brand;
+  const unit = (p.product_quantity_unit === 'ml' || /\d\s*(ml|cl|l)\b/i.test(p.quantity || '')) ? 'ml' : 'g';
+  const portion = num(p.serving_quantity);
+  return {
+    complete: kcal !== null && !!name,
+    food: {
+      name: name || '', unit, portion: portion && portion > 0 ? r1(portion) : 100, barcode: code,
+      kcal: r1(kcal ?? 0), p: r1(num(n.proteins_100g) ?? 0), c: r1(num(n.carbohydrates_100g) ?? 0), f: r1(num(n.fat_100g) ?? 0),
+    },
+  };
+}
+
+async function lookupBarcode(code) {
+  const known = state.customFoods.find(f => f.barcode && sameBarcode(f.barcode, code));
+  if (known) {
+    scanDialog.close();
+    return selectFood({ ...known, custom: true });
+  }
+  scanBusy = true;
+  setScanStatus(`Suche Produkt ${code} …`);
+  try {
+    const product = await fetchProduct(code);
+    if (!scanDialog.open) return;
+    if (!product) {
+      scanDialog.close();
+      return openFoodDialog({ barcode: code }, true, 'Produkt nicht in der Datenbank – trag die Werte von der Packung ein.');
+    }
+    const { complete, food } = productToFood(code, product);
+    scanDialog.close();
+    if (!complete) {
+      return openFoodDialog({ barcode: code, name: food.name }, true, 'Nährwerte unvollständig – bitte von der Packung ergänzen.');
+    }
+    const saved = saveCustomFood(food);
+    selectFood({ ...saved, custom: true });
+  } catch (err) {
+    console.warn(err);
+    if (!scanDialog.open) return;
+    scanDialog.close();
+    openFoodDialog({ barcode: code }, true, 'Keine Verbindung zur Produktdatenbank – trag die Werte von der Packung ein.');
+  } finally {
+    scanBusy = false;
+  }
+}
+
+for (const d of [addDialog, foodDialog, scanDialog]) {
   d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
 }
 $('#foodSearch').addEventListener('keydown', e => {

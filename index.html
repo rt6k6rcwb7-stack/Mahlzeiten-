@@ -109,7 +109,12 @@
       </header>
 
       <div id="pickStep">
-        <input type="search" id="foodSearch" placeholder="Lebensmittel suchen …" autocomplete="off">
+        <div class="search-row" id="searchRow">
+          <input type="search" id="foodSearch" placeholder="Lebensmittel suchen …" autocomplete="off">
+          <button type="button" class="scan-btn" id="scanBtn" aria-label="Barcode scannen" title="Barcode scannen">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 7V4h3M18 4h3v3M21 17v3h-3M6 20H3v-3M7 8v8M10 8v8M13 8v8M16 8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
         <div class="segmented" id="pickTabs">
           <button type="button" class="active" data-src="all">Alle</button>
           <button type="button" data-src="recent">Zuletzt</button>
@@ -151,6 +156,8 @@
         <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
       </header>
       <label>Name<input name="name" required></label>
+      <input type="hidden" name="barcode">
+      <p class="muted" id="foodBarcodeInfo" hidden></p>
       <div class="row">
         <label>Einheit
           <select name="unit"><option value="g">Gramm</option><option value="ml">Milliliter</option></select>
@@ -166,6 +173,25 @@
       </div>
       <button class="btn primary" value="save">Speichern</button>
     </form>
+  </dialog>
+
+  <!-- Dialog: Barcode-Scanner -->
+  <dialog id="scanDialog">
+    <div class="sheet">
+      <header class="sheet-head">
+        <h3>Barcode scannen</h3>
+        <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
+      </header>
+      <div class="scan-view">
+        <video id="scanVideo" playsinline muted></video>
+        <div class="scan-frame"></div>
+      </div>
+      <p class="scan-status" id="scanStatus"></p>
+      <form id="manualCodeForm" class="search-row">
+        <input id="manualCode" inputmode="numeric" autocomplete="off" placeholder="oder Barcode-Nummer eintippen">
+        <button class="btn primary" style="flex:none">Suchen</button>
+      </form>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
