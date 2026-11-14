@@ -3,72 +3,113 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#2f7d5b">
+  <meta name="theme-color" content="#f3f4f1">
   <title>Mahlzeiten</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon.svg">
   <link rel="stylesheet" href="styles.css">
+  <script>
+    try {
+      const ui = (JSON.parse(localStorage.getItem('mahlzeiten.v1') || '{}').ui) || {};
+      if (ui.accent) document.documentElement.dataset.accent = ui.accent;
+      if (ui.theme && ui.theme !== 'auto') document.documentElement.dataset.theme = ui.theme;
+    } catch (e) {}
+  </script>
 </head>
 <body>
-  <header class="topbar">
-    <button class="icon-btn" id="prevDay" aria-label="Vorheriger Tag">‹</button>
-    <button class="date-btn" id="dateLabel">Heute</button>
+  <header class="topbar" id="topbar">
+    <button class="title-btn" id="dateBtn" type="button" aria-label="Datum wählen">
+      <h1 id="dateLabel">Heute</h1>
+      <span id="dateSub" class="title-sub"></span>
+    </button>
     <input type="date" id="datePicker" class="visually-hidden" tabindex="-1">
-    <button class="icon-btn" id="nextDay" aria-label="Nächster Tag">›</button>
+    <div class="day-nav" id="dayNav">
+      <button class="round-btn" id="prevDay" aria-label="Vorheriger Tag">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="round-btn" id="todayBtn" aria-label="Zu heute springen" hidden>Heute</button>
+      <button class="round-btn" id="nextDay" aria-label="Nächster Tag">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
   </header>
 
   <main>
     <!-- Tagesansicht -->
     <section id="view-day" class="view active">
       <div class="card summary">
-        <div class="ring-wrap">
-          <svg viewBox="0 0 120 120" class="ring" aria-hidden="true">
-            <circle cx="60" cy="60" r="52" class="ring-bg"/>
-            <circle cx="60" cy="60" r="52" class="ring-fg" id="kcalRing"/>
-          </svg>
-          <div class="ring-text">
-            <strong id="kcalLeft">0</strong>
-            <span id="kcalLeftLabel">kcal übrig</span>
+        <div class="summary-top">
+          <div class="ring-wrap">
+            <svg viewBox="0 0 120 120" class="ring" aria-hidden="true">
+              <defs>
+                <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" class="ring-stop-a"/><stop offset="100%" class="ring-stop-b"/>
+                </linearGradient>
+              </defs>
+              <circle cx="60" cy="60" r="52" class="ring-bg"/>
+              <circle cx="60" cy="60" r="52" class="ring-fg" id="kcalRing"/>
+            </svg>
+            <div class="ring-text">
+              <strong id="kcalLeft">0</strong>
+              <span id="kcalLeftLabel">kcal übrig</span>
+            </div>
+          </div>
+          <div class="kcal-stats">
+            <div class="kstat"><span class="kstat-label">Gegessen</span><strong id="kcalEaten">0</strong></div>
+            <div class="kstat"><span class="kstat-label">Aktivität</span><strong id="kcalActVal" class="kstat-act">0</strong></div>
+            <div class="kstat"><span class="kstat-label">Ziel</span><strong id="kcalGoal">0</strong></div>
+            <span id="kcalAct" hidden></span>
           </div>
         </div>
         <div class="macros">
-          <div class="macro" data-m="p"><span class="m-name">Eiweiß</span><div class="bar"><i></i></div><span class="m-val"></span></div>
-          <div class="macro" data-m="c"><span class="m-name">Kohlenhydrate</span><div class="bar"><i></i></div><span class="m-val"></span></div>
-          <div class="macro" data-m="f"><span class="m-name">Fett</span><div class="bar"><i></i></div><span class="m-val"></span></div>
-          <div class="kcal-line"><span id="kcalEaten">0</span> von <span id="kcalGoal">0</span> kcal <span id="kcalAct" class="act-plus"></span></div>
+          <div class="macro" data-m="p"><span class="m-name">Eiweiß</span><span class="m-val"></span><div class="bar"><i></i></div></div>
+          <div class="macro" data-m="c"><span class="m-name">Kohlenhydrate</span><span class="m-val"></span><div class="bar"><i></i></div></div>
+          <div class="macro" data-m="f"><span class="m-name">Fett</span><span class="m-val"></span><div class="bar"><i></i></div></div>
+        </div>
+        <div class="macros nutrients" id="nutrientCard">
+          <div class="macro small" data-m="fib"><span class="m-name">Ballaststoffe</span><span class="m-val"></span><div class="bar"><i></i></div></div>
+          <div class="macro small" data-m="sug"><span class="m-name">Zucker <span class="m-hint">max.</span></span><span class="m-val"></span><div class="bar"><i></i></div></div>
+          <div class="macro small" data-m="salt"><span class="m-name">Salz <span class="m-hint">max.</span></span><span class="m-val"></span><div class="bar"><i></i></div></div>
         </div>
       </div>
       <p class="streak-line" id="streakLine" hidden></p>
 
-      <div class="card nutrients" id="nutrientCard">
-        <div class="macro" data-m="fib"><span class="m-name">Ballaststoffe <span class="muted">mind.</span></span><div class="bar"><i></i></div><span class="m-val"></span></div>
-        <div class="macro" data-m="sug"><span class="m-name">Zucker <span class="muted">max.</span></span><div class="bar"><i></i></div><span class="m-val"></span></div>
-        <div class="macro" data-m="salt"><span class="m-name">Salz <span class="muted">max.</span></span><div class="bar"><i></i></div><span class="m-val"></span></div>
-      </div>
-
-      <div class="card water">
-        <div><strong>Wasser</strong> <span id="waterVal" class="muted"></span></div>
-        <div class="water-btns">
-          <button class="chip" data-water="-250">−</button>
-          <button class="chip" data-water="250">+ 250 ml</button>
-          <button class="chip" data-water="500">+ 500 ml</button>
-        </div>
-      </div>
-
-      <div class="card weight-card">
-        <div><strong>Gewicht</strong> <span id="weightVal" class="muted"></span></div>
-        <button class="chip" id="weightAddBtn" type="button">+ Eintragen</button>
-      </div>
+      <div id="meals"></div>
 
       <div class="card">
-        <div class="meal-head"><h2 style="margin:0">Aktivitäten</h2><span class="kcal" id="actTotal"></span></div>
+        <div class="card-title">
+          <span class="ct-icon" style="--tint: var(--act)">🏃</span>
+          <div class="ct-text"><h2>Aktivitäten</h2><span class="ct-sub" id="actTotal"></span></div>
+          <button class="add-round" id="actAddBtn" type="button" aria-label="Aktivität hinzufügen">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
         <ul class="entries" id="actList"></ul>
-        <button class="add-btn" id="actAddBtn" type="button">+ Aktivität</button>
         <p class="muted act-note" id="actNote" hidden></p>
       </div>
 
-      <div id="meals"></div>
+      <div class="card water">
+        <div class="card-title">
+          <span class="ct-icon" style="--tint: var(--water)">💧</span>
+          <div class="ct-text"><h2>Wasser</h2><span class="ct-sub" id="waterVal"></span></div>
+          <div class="water-btns">
+            <button class="round-btn small" data-water="-250" aria-label="250 ml weniger">−</button>
+            <button class="round-btn small accent" data-water="250" aria-label="250 ml mehr">+</button>
+          </div>
+        </div>
+        <div class="glasses" id="glasses"></div>
+      </div>
+
+      <div class="card weight-card">
+        <div class="card-title">
+          <span class="ct-icon" style="--tint: var(--weight)">⚖️</span>
+          <div class="ct-text"><h2>Gewicht</h2><span class="ct-sub" id="weightVal"></span></div>
+          <button class="add-round" id="weightAddBtn" type="button" aria-label="Gewicht eintragen">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
     </section>
 
     <!-- Verlauf -->
@@ -113,6 +154,25 @@
 
     <!-- Einstellungen -->
     <section id="view-settings" class="view">
+      <div class="card" id="themeCard">
+        <h2>Darstellung</h2>
+        <p class="goal-group">Farbe</p>
+        <div class="swatches" id="accentSwatches">
+          <button type="button" data-accent="green" style="--sw:#1f8a5c" aria-label="Grün"></button>
+          <button type="button" data-accent="teal" style="--sw:#0f8b8d" aria-label="Petrol"></button>
+          <button type="button" data-accent="blue" style="--sw:#2f6fde" aria-label="Blau"></button>
+          <button type="button" data-accent="violet" style="--sw:#7a4fd6" aria-label="Violett"></button>
+          <button type="button" data-accent="rose" style="--sw:#d6457a" aria-label="Rosé"></button>
+          <button type="button" data-accent="orange" style="--sw:#e2672a" aria-label="Orange"></button>
+        </div>
+        <p class="goal-group">Modus</p>
+        <div class="segmented" id="themeMode">
+          <button type="button" data-theme="auto">Automatisch</button>
+          <button type="button" data-theme="light">Hell</button>
+          <button type="button" data-theme="dark">Dunkel</button>
+        </div>
+      </div>
+
       <form class="card" id="calcForm" novalidate>
         <h2>Zielrechner</h2>
         <p class="muted">Berechnet deinen Kalorienbedarf und passende Ziele (Mifflin-St-Jeor-Formel). Das sind Richtwerte, kein Ersatz für eine ärztliche Beratung.</p>
@@ -218,9 +278,18 @@
   </main>
 
   <nav class="tabbar">
-    <button class="tab active" data-view="day">📅<span>Tag</span></button>
-    <button class="tab" data-view="history">📈<span>Verlauf</span></button>
-    <button class="tab" data-view="settings">⚙️<span>Einstellungen</span></button>
+    <button class="tab active" data-view="day">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="15" r="1.6" fill="currentColor"/></svg>
+      <span>Tag</span>
+    </button>
+    <button class="tab" data-view="history">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5h16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M5 15l4.5-4.5 3.5 3 6-6.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 7h4v4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Verlauf</span>
+    </button>
+    <button class="tab" data-view="settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="16" cy="7" r="2.3" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="8" cy="17" r="2.3" fill="none" stroke="currentColor" stroke-width="1.9"/></svg>
+      <span>Einstellungen</span>
+    </button>
   </nav>
 
   <!-- Dialog: Eintrag hinzufügen -->

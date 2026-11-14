@@ -20,6 +20,7 @@ Kein Server, kein Konto: alle Daten bleiben lokal im Browser (`localStorage`).
 - Eigene Lebensmittel anlegen (Werte von der Verpackung)
 - Verlauf: 7-Tage-Diagramm und 30-Tage-Liste
 - Ziele anpassen, Export/Import als JSON-Backup
+- **Darstellung**: 6 Akzentfarben, heller/dunkler Modus (oder automatisch nach System)
 - Offline-fähig, auf dem Handy zum Homescreen hinzufügbar
 
 ## Starten

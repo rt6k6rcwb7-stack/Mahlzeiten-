@@ -3,11 +3,12 @@
 /* ---------- Speicher ---------- */
 const STORE_KEY = 'mahlzeiten.v1';
 const MEALS = [
-  { id: 'breakfast', label: 'Frühstück' },
-  { id: 'lunch', label: 'Mittagessen' },
-  { id: 'dinner', label: 'Abendessen' },
-  { id: 'snack', label: 'Snacks' },
+  { id: 'breakfast', label: 'Frühstück', icon: '🥣', tint: '#e6a23c' },
+  { id: 'lunch', label: 'Mittagessen', icon: '🥗', tint: '#2e9e6b' },
+  { id: 'dinner', label: 'Abendessen', icon: '🍝', tint: '#de5b70' },
+  { id: 'snack', label: 'Snacks', icon: '🍎', tint: '#3d7be0' },
 ];
+const PLUS_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
 const DEFAULT_STATE = {
   goals: { kcal: 2000, p: 100, c: 230, f: 70, fib: 30, sug: 50, salt: 6, water: 2000, weight: 0, weightDate: '', actFactor: 1 },
   days: {},          // 'YYYY-MM-DD' -> { entries: [], water: 0 }
@@ -16,6 +17,7 @@ const DEFAULT_STATE = {
   dishes: [],        // gespeicherte Gerichte: { id, name, portions, ingredients: [...] }
   weights: [],       // Messungen: { id, ts: 'YYYY-MM-DDTHH:MM', date, kg, fat (%), source }
   profile: {},       // Angaben für den Zielrechner
+  ui: { accent: 'green', theme: 'auto' }, // Darstellung
   recentActivities: [], // zuletzt genutzte Aktivitäten
 };
 
@@ -141,7 +143,10 @@ let currentView = 'day';
 
 /* ---------- Tagesansicht ---------- */
 function renderDay() {
+  const isToday = currentDate === today();
   $('#dateLabel').textContent = dateLabel(currentDate);
+  $('#dateSub').textContent = parseIso(currentDate).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('#todayBtn').hidden = isToday;
   const day = getDay(currentDate);
   const t = totals(day.entries);
   const g = effGoals(currentDate);
@@ -159,6 +164,7 @@ function renderDay() {
   $('#kcalEaten').textContent = fmt(t.kcal);
   $('#kcalGoal').textContent = fmt(g.kcal);
   $('#kcalAct').textContent = g.extra ? `(inkl. +${fmt(g.extra)} Aktivität)` : '';
+  $('#kcalActVal').textContent = g.extra ? `+${fmt(g.extra)}` : '0';
   renderActivities();
 
   for (const m of ['p', 'c', 'f']) {
@@ -191,11 +197,19 @@ function renderDay() {
   $('#streakLine').hidden = streak < 2;
   $('#streakLine').textContent = `🔥 ${streak} Tage in Folge im Kalorienziel`;
 
-  $('#waterVal').textContent = `${fmt(day.water || 0)} / ${fmt(g.water)} ml`;
+  $('#waterVal').textContent = `${fmt1((day.water || 0) / 1000)} von ${fmt1(g.water / 1000)} Litern`;
+  // Gläser à 250 ml (4 bis 12 Symbole)
+  const glassMl = 250;
+  const nGlasses = Math.min(12, Math.max(4, Math.ceil((g.water || 2000) / glassMl)));
+  const water = day.water || 0;
+  $('#glasses').innerHTML = Array.from({ length: nGlasses }, (_, i) => {
+    const fill = Math.max(0, Math.min(1, (water - i * glassMl) / glassMl));
+    return `<button class="glass" data-glass="${i + 1}" style="--fill:${Math.round(fill * 100)}%" aria-label="${(i + 1) * glassMl} ml"></button>`;
+  }).join('');
   const wToday = latestWeightOn(currentDate);
   const wPrev = wToday || [...sortedWeights()].reverse().find(w => w.date < currentDate);
   $('#weightVal').textContent = wToday ? `${fmtKg(wToday.kg)} kg`
-    : wPrev ? `zuletzt ${fmtKg(wPrev.kg)} kg (${dateLabel(wPrev.date)})` : 'noch nichts eingetragen';
+    : wPrev ? `zuletzt ${fmtKg(wPrev.kg)} kg · ${dateLabel(wPrev.date)}` : 'noch nichts eingetragen';
 
   // Mahlzeiten
   const wrap = $('#meals');
@@ -204,9 +218,13 @@ function renderDay() {
     const list = day.entries.filter(e => e.meal === meal.id);
     const mt = totals(list);
     const card = document.createElement('div');
-    card.className = 'card';
+    card.className = 'card meal-card';
     card.innerHTML = `
-      <div class="meal-head"><h2 style="margin:0">${meal.label}</h2><span class="kcal">${list.length ? fmt(mt.kcal) + ' kcal' : ''}</span></div>
+      <div class="card-title">
+        <span class="ct-icon" style="--tint:${meal.tint}">${meal.icon}</span>
+        <div class="ct-text"><h2>${meal.label}</h2><span class="ct-sub">${list.length ? `${fmt(mt.kcal)} kcal · ${list.length} ${list.length === 1 ? 'Eintrag' : 'Einträge'}` : 'Noch nichts eingetragen'}</span></div>
+        <button class="add-round" data-add="${meal.id}" aria-label="${meal.label}: hinzufügen">${PLUS_SVG}</button>
+      </div>
       <ul class="entries">${list.map(e => `
         <li class="entry">
           <div class="e-main">
@@ -216,8 +234,7 @@ function renderDay() {
           <div class="e-right">${fmt(e.kcal)} kcal<button class="del-btn" data-del="${e.id}" aria-label="Löschen">✕</button></div>
         </li>`).join('')}
       </ul>
-      <button class="add-btn" data-add="${meal.id}">+ Hinzufügen</button>
-      ${list.length >= 2 ? `<button class="link-btn" data-savedish="${meal.id}">Als Gericht speichern</button>` : ''}`;
+      ${list.length >= 2 ? `<button class="link-btn" data-savedish="${meal.id}">🍲 Als Gericht speichern</button>` : ''}`;
     wrap.append(card);
   }
 }
@@ -248,11 +265,22 @@ $$('[data-water]').forEach(b => b.addEventListener('click', () => {
   day.water = Math.max(0, (day.water || 0) + Number(b.dataset.water));
   save(); renderDay();
 }));
+// Tippen auf ein Glas setzt die Menge bis zu diesem Glas (erneutes Tippen auf das letzte volle Glas leert es)
+$('#glasses').addEventListener('click', e => {
+  const b = e.target.closest('[data-glass]');
+  if (!b) return;
+  const day = getDay(currentDate, true);
+  const ml = Number(b.dataset.glass) * 250;
+  day.water = (day.water || 0) === ml ? ml - 250 : ml;
+  save(); renderDay();
+});
 
 /* ---------- Datum ---------- */
 $('#prevDay').onclick = () => { currentDate = addDays(currentDate, -1); render(); };
 $('#nextDay').onclick = () => { currentDate = addDays(currentDate, 1); render(); };
-$('#dateLabel').onclick = () => {
+$('#todayBtn').onclick = () => { currentDate = today(); render(); };
+$('#dateBtn').onclick = () => {
+  if (currentView !== 'day') return;
   const p = $('#datePicker');
   p.value = currentDate;
   if (p.showPicker) { try { p.showPicker(); return; } catch {} }
@@ -567,7 +595,7 @@ $('#importFile').onchange = async e => {
     if (!data || typeof data.days !== 'object') throw new Error();
     if (!confirm('Aktuelle Daten durch das Backup ersetzen?')) return;
     state = { ...structuredClone(DEFAULT_STATE), ...data, goals: { ...DEFAULT_STATE.goals, ...(data.goals || {}) } };
-    save(); render(); toast('Backup importiert');
+    save(); applyTheme(); render(); toast('Backup importiert');
   } catch {
     toast('Datei konnte nicht gelesen werden');
   } finally {
@@ -575,12 +603,42 @@ $('#importFile').onchange = async e => {
   }
 };
 
+/* ---------- Darstellung ---------- */
+function applyTheme() {
+  const ui = { accent: 'green', theme: 'auto', ...(state.ui || {}) };
+  const root = document.documentElement;
+  if (ui.accent !== 'green') root.dataset.accent = ui.accent; else root.removeAttribute('data-accent');
+  if (ui.theme === 'light' || ui.theme === 'dark') root.dataset.theme = ui.theme; else root.removeAttribute('data-theme');
+  $$('#accentSwatches button').forEach(b => b.classList.toggle('active', b.dataset.accent === ui.accent));
+  $$('#themeMode button').forEach(b => b.classList.toggle('active', b.dataset.theme === ui.theme));
+  // Statusleiste an den Hintergrund anpassen
+  requestAnimationFrame(() => {
+    document.querySelector('meta[name="theme-color"]').setAttribute('content', getComputedStyle(document.body).backgroundColor);
+  });
+}
+$('#accentSwatches').addEventListener('click', e => {
+  const b = e.target.closest('[data-accent]');
+  if (!b) return;
+  state.ui = { ...(state.ui || {}), accent: b.dataset.accent };
+  save(); applyTheme();
+});
+$('#themeMode').addEventListener('click', e => {
+  const b = e.target.closest('[data-theme]');
+  if (!b) return;
+  state.ui = { ...(state.ui || {}), theme: b.dataset.theme };
+  save(); applyTheme();
+});
+window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
+
 /* ---------- Navigation ---------- */
 function setView(v) {
   currentView = v;
   $$('.view').forEach(s => s.classList.toggle('active', s.id === 'view-' + v));
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
-  $('.topbar').style.visibility = v === 'day' ? 'visible' : 'hidden';
+  const titles = { history: ['Verlauf', 'Ziele, Kalorien & Gewicht'], settings: ['Einstellungen', 'Ziele, Lebensmittel & Daten'] };
+  $('#topbar').classList.toggle('static', v !== 'day');
+  $('#dayNav').hidden = v !== 'day';
+  if (v !== 'day') { $('#dateLabel').textContent = titles[v][0]; $('#dateSub').textContent = titles[v][1]; }
   render();
   window.scrollTo(0, 0);
 }
@@ -1126,6 +1184,8 @@ function renderWeight() {
       <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Gewichtsverlauf">
         ${ticks.map(t => `<line class="wgrid" x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/><text class="wlabel" x="${L - 4}" y="${y(t) + 4}" text-anchor="end">${fmtKg(t)}</text>`).join('')}
         ${goal && goal >= lo && goal <= hi ? `<line class="wgoal" x1="${L}" x2="${W - R}" y1="${y(goal)}" y2="${y(goal)}"/><text class="wlabel" x="${W - R}" y="${y(goal) - 4}" text-anchor="end">Ziel ${fmtKg(goal)}</text>` : ''}
+        <defs><linearGradient id="wGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" class="wgrad-a"/><stop offset="100%" class="wgrad-b"/></linearGradient></defs>
+        ${pts.length > 1 ? `<path class="warea" d="M${x(pts[0].date).toFixed(1)},${H - B} ${pts.map(p => `L${x(p.date).toFixed(1)},${y(p.kg).toFixed(1)}`).join(' ')} L${x(pts[pts.length - 1].date).toFixed(1)},${H - B} Z"/>` : ''}
         <polyline class="wline" points="${pts.map(p => `${x(p.date).toFixed(1)},${y(p.kg).toFixed(1)}`).join(' ')}"/>
         ${pts.map((p, i) => (showDots || i === pts.length - 1)
           ? `<circle class="wdot${i === pts.length - 1 ? ' last' : ''}" cx="${x(p.date).toFixed(1)}" cy="${y(p.kg).toFixed(1)}" r="${i === pts.length - 1 ? 4 : 3}"><title>${fmtD(p.date)}: ${fmtKg(p.kg)} kg</title></circle>` : '').join('')}
@@ -1591,6 +1651,7 @@ $('#foodSearch').addEventListener('keydown', e => {
 // Datum aktualisieren, wenn die App über Mitternacht offen bleibt
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
+applyTheme();
 render();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
