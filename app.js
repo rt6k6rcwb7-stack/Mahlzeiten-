@@ -9,13 +9,22 @@ const MEALS = [
   { id: 'snack', label: 'Snacks' },
 ];
 const DEFAULT_STATE = {
-  goals: { kcal: 2000, p: 100, c: 230, f: 70, water: 2000, weight: 0 },
+  goals: { kcal: 2000, p: 100, c: 230, f: 70, fib: 30, sug: 50, salt: 6, water: 2000, weight: 0, weightDate: '' },
   days: {},          // 'YYYY-MM-DD' -> { entries: [], water: 0 }
   customFoods: [],   // gleiche Struktur wie BASE_FOODS, plus id
   recent: [],        // zuletzt verwendete Lebensmittel (Snapshot)
   dishes: [],        // gespeicherte Gerichte: { id, name, portions, ingredients: [...] }
   weights: [],       // Messungen: { id, ts: 'YYYY-MM-DDTHH:MM', date, kg, fat (%), source }
+  profile: {},       // Angaben für den Zielrechner
 };
+
+// Alle erfassten Nährwerte (pro 100 g/ml bzw. absolut in Einträgen)
+const NUTR = ['kcal', 'p', 'c', 'f', 'fib', 'sug', 'salt'];
+const mapN = (o, fn) => Object.fromEntries(NUTR.map(k => [k, fn(Number(o?.[k]) || 0, k)]));
+const pickN = o => mapN(o, v => v);
+const zeroN = () => mapN({}, () => 0);
+const addN = (a, b) => mapN(a, (v, k) => v + (Number(b?.[k]) || 0));
+const roundN = o => mapN(o, (v, k) => k === 'salt' ? Math.round(v * 100) / 100 : Math.round(v * 10) / 10);
 
 function loadState() {
   try {
@@ -66,18 +75,17 @@ function getDay(date, create = false) {
 }
 
 function totals(entries) {
-  return entries.reduce((t, e) => ({ kcal: t.kcal + e.kcal, p: t.p + e.p, c: t.c + e.c, f: t.f + e.f }),
-    { kcal: 0, p: 0, c: 0, f: 0 });
+  return entries.reduce(addN, zeroN());
 }
 
 function scale(food, amount) {
   const k = amount / 100;
-  return { kcal: food.kcal * k, p: food.p * k, c: food.c * k, f: food.f * k };
+  return mapN(food, v => v * k);
 }
 
 // Nährwerte für eine Menge: Lebensmittel pro 100 g/ml, Gerichte pro Portion
 function nutr(food, amount) {
-  if (food.kind === 'dish') return { kcal: food.kcal * amount, p: food.p * amount, c: food.c * amount, f: food.f * amount };
+  if (food.kind === 'dish') return mapN(food, v => v * amount);
   return scale(food, amount);
 }
 
@@ -142,6 +150,27 @@ function renderDay() {
     bar.classList.toggle('over', r > 1.1);
     $('.m-val', el).textContent = `${fmt(t[m])} / ${fmt(g[m])} g`;
   }
+
+  // Weitere Nährstoffe (Ballaststoffe = Mindestziel, Zucker/Salz = Maximum)
+  let anyExtra = false;
+  for (const m of ['fib', 'sug', 'salt']) {
+    const el = $(`.macro[data-m="${m}"]`);
+    el.hidden = !g[m];
+    if (!g[m]) continue;
+    anyExtra = true;
+    const r = t[m] / g[m];
+    const bar = $('.bar i', el);
+    bar.style.width = Math.min(r, 1) * 100 + '%';
+    bar.classList.toggle('over', m !== 'fib' && r > 1);
+    bar.classList.toggle('done', m === 'fib' && r >= 1);
+    const v = m === 'salt' ? fmt1(t[m]) : fmt(t[m]);
+    $('.m-val', el).textContent = `${v} / ${m === 'salt' ? fmt1(g[m]) : fmt(g[m])} g`;
+  }
+  $('#nutrientCard').hidden = !anyExtra;
+
+  const streak = currentDate === today() ? currentStreak(d => dayStatus(d).kcal === true) : 0;
+  $('#streakLine').hidden = streak < 2;
+  $('#streakLine').textContent = `🔥 ${streak} Tage in Folge im Kalorienziel`;
 
   $('#waterVal').textContent = `${fmt(day.water || 0)} / ${fmt(g.water)} ml`;
   const wToday = latestWeightOn(currentDate);
@@ -345,7 +374,9 @@ $('#amount').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preve
 function updatePreview() {
   const a = parseFloat($('#amount').value) || 0;
   const n = nutr(selected, a);
-  $('#amountPreview').textContent = `${fmt(n.kcal)} kcal · E ${fmt1(n.p)} g · KH ${fmt1(n.c)} g · F ${fmt1(n.f)} g`;
+  const extra = [n.fib >= 0.05 && `Ballaststoffe ${fmt1(n.fib)} g`, n.sug >= 0.05 && `Zucker ${fmt1(n.sug)} g`, n.salt >= 0.05 && `Salz ${fmt1(n.salt)} g`].filter(Boolean);
+  $('#amountPreview').innerHTML = `${fmt(n.kcal)} kcal · E ${fmt1(n.p)} g · KH ${fmt1(n.c)} g · F ${fmt1(n.f)} g` +
+    (extra.length ? `<br><span class="muted">${extra.join(' · ')}</span>` : '');
 }
 
 $('#backBtn').onclick = () => showStep('pick');
@@ -367,19 +398,19 @@ $('#quickAddBtn').onclick = () => {
 };
 
 function addEntry(food) {
-  const vals = food.quick ? { kcal: food.kcal, p: food.p, c: food.c, f: food.f } : nutr(food, food.amount);
+  const vals = food.quick ? pickN(food) : nutr(food, food.amount);
   const day = getDay(currentDate, true);
   day.entries.push({
     id: uid(), meal: addMeal, name: food.name,
     amount: food.quick ? 0 : food.amount, unit: food.unit || '',
-    kcal: r1(vals.kcal), p: r1(vals.p), c: r1(vals.c), f: r1(vals.f),
+    ...roundN(vals),
   });
   // Zuletzt verwendet
   const snap = food.quick
-    ? { name: food.name, kcal: food.kcal, p: food.p, c: food.c, f: food.f, quick: true }
+    ? { name: food.name, ...pickN(food), quick: true }
     : food.kind === 'dish'
     ? { ...food, lastAmount: food.amount, amount: undefined }
-    : { name: food.name, kcal: food.kcal, p: food.p, c: food.c, f: food.f, unit: food.unit, portion: food.portion, lastAmount: food.amount, custom: food.custom };
+    : { name: food.name, ...pickN(food), unit: food.unit, portion: food.portion, lastAmount: food.amount, custom: food.custom };
   state.recent = [snap, ...state.recent.filter(r => r.name !== food.name)].slice(0, 30);
   save();
   addDialog.close();
@@ -416,6 +447,7 @@ function renderHistory() {
     items.push(`<li data-date="${d}"><span>${dateLabel(d)}</span><span class="muted">E ${fmt(tt.p)} · KH ${fmt(tt.c)} · F ${fmt(tt.f)}</span><strong>${fmt(tt.kcal)} kcal</strong></li>`);
   }
   $('#historyList').innerHTML = items.join('') || '<li class="muted">Noch keine Einträge.</li>';
+  renderGoalProgress();
   renderWeight();
 }
 function jumpTo(e) {
@@ -430,7 +462,12 @@ $('#historyList').addEventListener('click', jumpTo);
 /* ---------- Einstellungen ---------- */
 const goalsForm = $('#goalsForm');
 function renderSettings() {
-  for (const k of Object.keys(state.goals)) goalsForm.elements[k].value = (k === 'weight' && !state.goals[k]) ? '' : state.goals[k];
+  if (!calcForm.contains(document.activeElement)) fillCalcForm();
+  for (const k of Object.keys(state.goals)) {
+    if (!goalsForm.elements[k]) continue;
+    goalsForm.elements[k].value = (k === 'weight' && !state.goals[k]) ? '' : state.goals[k];
+  }
+  renderCalc();
   $('#dishList').innerHTML = state.dishes.map(d => {
     const f = dishToFood(d);
     return `<li data-dish="${d.id}"><div><div>${esc(d.name)}</div>
@@ -443,7 +480,12 @@ function renderSettings() {
 }
 goalsForm.addEventListener('submit', e => {
   e.preventDefault();
-  for (const k of Object.keys(state.goals)) state.goals[k] = Math.max(0, Number(goalsForm.elements[k].value) || 0);
+  for (const k of Object.keys(state.goals)) {
+    const el = goalsForm.elements[k];
+    if (!el) continue;
+    state.goals[k] = k === 'weightDate' ? el.value : Math.max(0, Number(el.value) || 0);
+  }
+  renderCalc();
   save(); toast('Ziele gespeichert');
 });
 
@@ -468,7 +510,7 @@ $('#foodForm').addEventListener('submit', e => {
   const food = saveCustomFood({
     name: f.name.value.trim(), unit: f.unit.value,
     portion: Number(f.portion.value) || 100,
-    kcal: Number(f.kcal.value) || 0, p: Number(f.p.value) || 0, c: Number(f.c.value) || 0, f: Number(f.f.value) || 0,
+    ...mapN({}, (_, k) => Number(f[k].value) || 0),
     barcode: f.barcode.value || undefined,
   });
   renderSettings(); toast('Lebensmittel gespeichert');
@@ -674,7 +716,8 @@ function productToFood(code, p) {
     complete: kcal !== null && !!name,
     food: {
       name: name || '', unit, portion: portion && portion > 0 ? r1(portion) : 100, barcode: code,
-      kcal: r1(kcal ?? 0), p: r1(num(n.proteins_100g) ?? 0), c: r1(num(n.carbohydrates_100g) ?? 0), f: r1(num(n.fat_100g) ?? 0),
+      ...roundN({ kcal: kcal ?? 0, p: num(n.proteins_100g), c: num(n.carbohydrates_100g), f: num(n.fat_100g),
+        fib: num(n.fiber_100g), sug: num(n.sugars_100g), salt: num(n.salt_100g) ?? (num(n.sodium_100g) !== null ? num(n.sodium_100g) * 2.5 : 0) }),
     },
   };
 }
@@ -710,6 +753,168 @@ async function lookupBarcode(code) {
     scanBusy = false;
   }
 }
+
+/* ---------- Ziele: Status, Serien, Fortschritt ---------- */
+// true = erreicht, false = verfehlt, null = nichts eingetragen / kein Ziel
+function dayStatus(date) {
+  const g = state.goals;
+  const day = state.days[date];
+  const logged = !!(day && day.entries.length);
+  const t = logged ? totals(day.entries) : zeroN();
+  const chk = (goal, ok) => (!goal || !logged) ? null : ok;
+  return {
+    logged,
+    kcal: chk(g.kcal, t.kcal >= g.kcal * 0.8 && t.kcal <= g.kcal * 1.05),
+    p: chk(g.p, t.p >= g.p * 0.9),
+    fib: chk(g.fib, t.fib >= g.fib * 0.9),
+    sug: chk(g.sug, t.sug <= g.sug),
+    salt: chk(g.salt, t.salt <= g.salt),
+    water: g.water ? ((day?.water || 0) >= g.water ? true : (logged || day?.water) ? false : null) : null,
+  };
+}
+
+// Aktuelle Serie; der heutige Tag zählt erst, wenn das Ziel erreicht ist
+function currentStreak(test) {
+  let d = today();
+  if (!test(d)) d = addDays(d, -1);
+  let n = 0;
+  while (test(d) && n < 3660) { n++; d = addDays(d, -1); }
+  return n;
+}
+
+function longestStreak(test) {
+  const dates = Object.keys(state.days).filter(d => state.days[d].entries.length).sort();
+  if (!dates.length) return 0;
+  let best = 0, cur = 0, d = dates[0];
+  const end = today();
+  while (d <= end) {
+    if (test(d)) { cur++; best = Math.max(best, cur); } else cur = 0;
+    d = addDays(d, 1);
+  }
+  return best;
+}
+
+function renderGoalProgress() {
+  const g = state.goals;
+  const kcalTest = d => dayStatus(d).kcal === true;
+  const logTest = d => dayStatus(d).logged;
+  const tiles = [
+    [currentStreak(kcalTest), 'Tage in Folge im Kalorienziel', '🔥'],
+    [currentStreak(logTest), 'Tage in Folge eingetragen', '📝'],
+    [longestStreak(kcalTest), 'Rekord-Serie im Kalorienziel', '🏆'],
+  ];
+  $('#streakTiles').innerHTML = tiles.map(([n, label, icon]) =>
+    `<div class="streak-tile"><strong>${icon} ${n}</strong><span>${label}</span></div>`).join('');
+
+  const days = Array.from({ length: 7 }, (_, i) => addDays(today(), i - 6));
+  const status = days.map(dayStatus);
+  // Heute läuft noch: „noch nicht erreicht“ ist kein Verfehlen (außer Überschreitungen)
+  const tToday = totals(getDay(today()).entries);
+  const st = status[6];
+  for (const k of ['p', 'fib', 'water']) if (st[k] === false) st[k] = 'pending';
+  if (st.kcal === false && tToday.kcal < g.kcal * 0.8) st.kcal = 'pending';
+  const rows = [
+    ['kcal', 'Kalorien'], ['p', 'Eiweiß'], ['fib', 'Ballaststoffe'], ['sug', 'Zucker'], ['salt', 'Salz'], ['water', 'Wasser'],
+  ].filter(([k]) => g[k]);
+  const cell = v => v === true ? '<td class="ok">✓</td>' : v === false ? '<td class="no">✗</td>'
+    : v === 'pending' ? '<td class="na" title="Heute noch offen">…</td>' : '<td class="na">–</td>';
+  $('#goalTable').innerHTML = `
+    <thead><tr><th></th>${days.map(d => `<th class="${d === today() ? 'today' : ''}">${parseIso(d).toLocaleDateString('de-DE', { weekday: 'short' }).replace('.', '')}</th>`).join('')}<th>Woche</th></tr></thead>
+    <tbody>${rows.map(([k, label]) => {
+      const vals = status.map(s => s[k]);
+      return `<tr><td>${label}</td>${vals.map(cell).join('')}<td>${vals.filter(v => v === true).length}/${vals.filter(v => v === true || v === false).length}</td></tr>`;
+    }).join('')}</tbody>`;
+}
+
+/* ---------- Zielrechner ---------- */
+const calcForm = $('#calcForm');
+let calcSuggestion = null;
+
+function weeksUntil(date) {
+  return (parseIso(date).getTime() - parseIso(today()).getTime()) / (7 * 86400000);
+}
+
+function computeGoals(pr) {
+  const age = Number(pr.age), h = Number(pr.height), w = Number(pr.weight), act = Number(pr.activity) || 1.2;
+  if (!(age >= 14 && age <= 100 && h >= 120 && h <= 230 && w >= 30 && w <= 300)) return null;
+  const bmr = 10 * w + 6.25 * h - 5 * age + (pr.sex === 'm' ? 5 : -161);
+  const tdee = bmr * act;
+  const notes = [];
+  let delta = 0;
+  if (pr.aim === 'target') {
+    const goal = Number(state.goals.weight), date = state.goals.weightDate;
+    if (!goal || !date) return { error: 'Trag unten bei den Tageszielen ein Zielgewicht und ein Zieldatum ein.' };
+    const weeks = weeksUntil(date);
+    if (weeks < 1) return { error: 'Das Zieldatum muss mindestens eine Woche in der Zukunft liegen.' };
+    const perWeek = (goal - w) / weeks;
+    delta = perWeek * 7700 / 7;
+    const lim = delta < 0 ? -1000 : 700;
+    if (Math.abs(delta) > Math.abs(lim)) {
+      delta = lim;
+      notes.push(`Für dein Zieldatum wären ${fmtKg(Math.abs(perWeek))} kg pro Woche nötig – das ist zu schnell. Gerechnet wird mit ${delta < 0 ? 'max. 1.000 kcal Defizit' : 'max. 700 kcal Überschuss'}; plane ein späteres Datum ein.`);
+    } else notes.push(`Dafür nötig: ${perWeek < 0 ? '−' : '+'}${fmtKg(Math.abs(perWeek))} kg pro Woche.`);
+  } else delta = Number(pr.aim) || 0;
+
+  let kcal = Math.round((tdee + delta) / 10) * 10;
+  const minKcal = pr.sex === 'm' ? 1500 : 1200;
+  if (kcal < minKcal) { kcal = minKcal; notes.push(`Auf ${fmt(minKcal)} kcal angehoben – weniger sollte es ohne ärztliche Begleitung nicht sein.`); }
+  const refW = Math.min(w, 27 * (h / 100) ** 2); // Bezugsgewicht bei hohem BMI
+  const p = Math.round(refW * (delta < 0 ? 1.8 : 1.6));
+  const f = Math.round(kcal * 0.3 / 9);
+  const c = Math.max(0, Math.round((kcal - p * 4 - f * 9) / 4));
+  return {
+    bmr, tdee, notes,
+    goals: { kcal, p, c, f, fib: 30, sug: Math.round(kcal * 0.1 / 4), salt: 6, water: Math.min(4000, Math.max(1500, Math.round(w * 35 / 250) * 250)) },
+  };
+}
+
+function readProfile() {
+  const f = calcForm.elements;
+  return { sex: f.sex.value, age: f.age.value, height: f.height.value, weight: f.weight.value, activity: f.activity.value, aim: f.aim.value };
+}
+
+function fillCalcForm() {
+  const pr = state.profile || {};
+  const f = calcForm.elements;
+  const lastW = sortedWeights().pop();
+  f.sex.value = pr.sex || 'f';
+  f.age.value = pr.age || '';
+  f.height.value = pr.height || '';
+  f.weight.value = lastW ? lastW.kg : (pr.weight || '');
+  f.activity.value = pr.activity || '1.375';
+  f.aim.value = pr.aim || '0';
+}
+
+function renderCalc() {
+  const res = computeGoals(readProfile());
+  const box = $('#calcResult');
+  calcSuggestion = res?.goals || null;
+  $('#calcApplyBtn').disabled = !calcSuggestion;
+  if (!res) { box.innerHTML = '<span class="muted">Fülle Alter, Größe und Gewicht aus, um deinen Bedarf zu sehen.</span>'; return; }
+  if (res.error) { box.innerHTML = `<span class="muted">${esc(res.error)}</span>`; return; }
+  const gg = res.goals;
+  box.innerHTML = `
+    <div class="muted">Grundumsatz ${fmt(res.bmr)} kcal · Gesamtbedarf ${fmt(res.tdee)} kcal</div>
+    <div>Vorschlag: <span class="calc-big">${fmt(gg.kcal)} kcal</span></div>
+    <div class="calc-grid">
+      <span>Eiweiß ${fmt(gg.p)} g</span><span>Kohlenhydrate ${fmt(gg.c)} g</span>
+      <span>Fett ${fmt(gg.f)} g</span><span>Ballaststoffe ≥ ${fmt(gg.fib)} g</span>
+      <span>Zucker ≤ ${fmt(gg.sug)} g</span><span>Salz ≤ ${fmt(gg.salt)} g</span>
+      <span>Wasser ${fmt1(gg.water / 1000)} l</span>
+    </div>
+    ${res.notes.map(n => `<div class="${/zu schnell|angehoben/.test(n) ? 'warn' : 'muted'}" style="margin-top:6px">${esc(n)}</div>`).join('')}`;
+}
+
+calcForm.addEventListener('input', () => { state.profile = readProfile(); save(); renderCalc(); });
+calcForm.addEventListener('change', () => { state.profile = readProfile(); save(); renderCalc(); });
+calcForm.addEventListener('submit', e => {
+  e.preventDefault();
+  if (!calcSuggestion) return;
+  Object.assign(state.goals, calcSuggestion);
+  save();
+  renderSettings();
+  toast('Neue Tagesziele übernommen');
+});
 
 /* ---------- Gewicht ---------- */
 const fmtKg = n => (Math.round(n * 10) / 10).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -779,10 +984,73 @@ function renderWeight() {
     parts.push(Math.abs(d) < 0.05 ? 'Ziel erreicht 🎉' : `noch ${fmtKg(Math.abs(d))} kg bis zum Ziel`);
   }
   $('#weightStats').textContent = parts.join(' · ');
+  renderWeightPlan(last);
 
   $('#weightList').innerHTML = [...sortedWeights()].reverse().slice(0, 100).map(w => `
     <li><span>${dateLabel(w.date)}${w.ts.length > 10 && w.source === 'withings' ? ` <span class="muted">${w.ts.slice(11, 16)}</span>` : ''}${w.source === 'withings' ? '<span class="src-tag">Withings</span>' : ''}</span>
     <span><strong>${fmtKg(w.kg)} kg</strong>${w.fat ? ` <span class="muted">${fmtKg(w.fat)} %</span>` : ''}<button class="del-btn" data-delweight="${w.id}" aria-label="Messung löschen">✕</button></span></li>`).join('');
+}
+
+// Lineare Regression über die letzten 4 Wochen -> kg pro Tag
+function weightTrend() {
+  const from = addDays(today(), -27);
+  const pts = dailyWeights().filter(w => w.date >= from);
+  if (pts.length < 3) return null;
+  const xs = pts.map(p => parseIso(p.date).getTime() / 86400000);
+  if (xs[xs.length - 1] - xs[0] < 7) return null;
+  const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const my = pts.reduce((a, p) => a + p.kg, 0) / pts.length;
+  let num_ = 0, den = 0;
+  xs.forEach((x, i) => { num_ += (x - mx) * (pts[i].kg - my); den += (x - mx) ** 2; });
+  return den ? num_ / den : null;
+}
+
+function renderWeightPlan(last) {
+  const box = $('#weightPlan');
+  const goal = Number(state.goals.weight) || 0;
+  const date = state.goals.weightDate;
+  if (!goal || !last) { box.hidden = true; return; }
+  const lines = [];
+  const remaining = goal - last.kg;
+  const fmtLong = d => parseIso(d).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+  const sign = v => v < 0 ? '−' : '+';
+
+  if (Math.abs(remaining) < 0.05) {
+    box.hidden = false;
+    box.innerHTML = '<p class="status-ok">🎉 Du hast dein Zielgewicht erreicht!</p>';
+    return;
+  }
+  let neededPerWeek = null;
+  if (date) {
+    const weeks = weeksUntil(date);
+    if (weeks <= 0) lines.push(`<p>Dein Zieldatum (${fmtLong(date)}) ist vorbei – setze in den Einstellungen ein neues.</p>`);
+    else {
+      neededPerWeek = remaining / weeks;
+      lines.push(`<p><strong>Plan:</strong> ${fmtKg(goal)} kg bis ${fmtLong(date)} – noch ${fmtKg(Math.abs(remaining))} kg in ${weeks < 2 ? fmt1(weeks) : fmt(weeks)} Wochen, also ${sign(neededPerWeek)}${fmtKg(Math.abs(neededPerWeek))} kg pro Woche.</p>`);
+      if (Math.abs(neededPerWeek) > 1) lines.push('<p class="status-warn">⚠️ Mehr als 1 kg pro Woche ist sehr ambitioniert – ein späteres Datum ist realistischer.</p>');
+    }
+  }
+  const slope = weightTrend();
+  if (slope === null) {
+    lines.push('<p class="muted">Für eine Prognose brauche ich mindestens 3 Messungen über eine Woche in den letzten 4 Wochen.</p>');
+  } else {
+    const perWeek = slope * 7;
+    const towards = Math.sign(perWeek) === Math.sign(remaining) && Math.abs(perWeek) >= 0.02;
+    if (!towards) {
+      lines.push(`<p><strong>Trend</strong> (4 Wochen): ${sign(perWeek)}${fmtKg(Math.abs(perWeek))} kg pro Woche – damit bewegst du dich gerade nicht auf dein Ziel zu.</p>`);
+      if (date) lines.push('<p class="status-warn">Noch nicht im Plan – kleine Anpassungen helfen schon.</p>');
+    } else {
+      const eta = addDays(today(), Math.round(remaining / slope));
+      lines.push(`<p><strong>Trend</strong> (4 Wochen): ${sign(perWeek)}${fmtKg(Math.abs(perWeek))} kg pro Woche – Ziel voraussichtlich am <strong>${fmtLong(eta)}</strong>.</p>`);
+      if (date && weeksUntil(date) > 0) {
+        lines.push(eta <= date
+          ? '<p class="status-ok">✅ Du liegst im Plan.</p>'
+          : '<p class="status-warn">⏳ Etwas langsamer als geplant.</p>');
+      }
+    }
+  }
+  box.hidden = false;
+  box.innerHTML = lines.join('');
 }
 
 $('#weightList').addEventListener('click', e => {
@@ -983,14 +1251,11 @@ let dishDraft = null; // { id?, name, portions, ingredients }
 
 // Zutat: { name, unit, amount, per100: {kcal,p,c,f} } oder feste Werte { name, fixed: {kcal,p,c,f} }
 function ingValues(i) {
-  return i.fixed ? i.fixed : scale(i.per100, Number(i.amount) || 0);
+  return i.fixed ? pickN(i.fixed) : scale(i.per100, Number(i.amount) || 0);
 }
 
 function dishTotals(d) {
-  return d.ingredients.reduce((t, i) => {
-    const v = ingValues(i);
-    return { kcal: t.kcal + v.kcal, p: t.p + v.p, c: t.c + v.c, f: t.f + v.f };
-  }, { kcal: 0, p: 0, c: 0, f: 0 });
+  return d.ingredients.reduce((t, i) => addN(t, ingValues(i)), zeroN());
 }
 
 function dishToFood(d) {
@@ -998,26 +1263,26 @@ function dishToFood(d) {
   const n = Math.max(1, Number(d.portions) || 1);
   return {
     kind: 'dish', id: d.id, name: d.name, unit: 'Portion', portion: 1,
-    kcal: t.kcal / n, p: t.p / n, c: t.c / n, f: t.f / n,
+    ...mapN(t, v => v / n),
     ingredientCount: d.ingredients.length,
     ingredientNames: d.ingredients.map(i => i.name.replace(/\s*\(.*\)$/, '')).join(', '),
   };
 }
 
 function ingredientFromFood(food) {
-  if (food.quick) return { name: food.name, fixed: { kcal: food.kcal, p: food.p, c: food.c, f: food.f } };
+  if (food.quick) return { name: food.name, fixed: pickN(food) };
   return {
     name: food.name, unit: food.unit || 'g', amount: food.lastAmount || food.portion || 100,
-    per100: { kcal: food.kcal, p: food.p, c: food.c, f: food.f },
+    per100: pickN(food),
   };
 }
 
 function ingredientFromEntry(e) {
-  const vals = { kcal: e.kcal, p: e.p, c: e.c, f: e.f };
+  const vals = pickN(e);
   if (e.amount > 0 && e.unit && e.unit !== 'Portion') {
     const k = 100 / e.amount;
     return { name: e.name, unit: e.unit, amount: e.amount,
-      per100: { kcal: r1(vals.kcal * k), p: r1(vals.p * k), c: r1(vals.c * k), f: r1(vals.f * k) } };
+      per100: roundN(mapN(vals, v => v * k)) };
   }
   const label = e.unit === 'Portion' ? `${e.name} (${amountLabel(e)})` : e.name;
   return { name: label, fixed: vals };

@@ -11,6 +11,10 @@ Kein Server, kein Konto: alle Daten bleiben lokal im Browser (`localStorage`).
 - **Gerichte**: Zutaten mit Mengen und Portionszahl speichern (z. B. Chili für 4 Portionen) oder eine eingetragene Mahlzeit per „Als Gericht speichern“ übernehmen; beim Eintragen nur noch die Portionen wählen
 - **Gewicht**: manuell eintragen (optional mit Körperfett), Zielgewicht, Verlaufsdiagramm (30 Tage bis alles)
 - **Withings-Import**: ZIP-Export („Meine Daten herunterladen“) oder `weight.csv` direkt einlesen; doppelte Messungen werden übersprungen
+- **Zielrechner**: Kalorien- und Makroziele aus Alter, Größe, Gewicht, Aktivität und Ziel (Mifflin-St-Jeor), optional passend zu Zielgewicht und -datum
+- **Weitere Nährstoffe**: Ballaststoffe (Mindestziel), Zucker und Salz (Maximum) – aus eingebauten Lebensmitteln, Open Food Facts und eigenen Lebensmitteln
+- **Gewichtsziel mit Datum**: nötiges Tempo pro Woche, Trend der letzten 4 Wochen und Prognose, wann das Ziel erreicht wird
+- **Ziele & Serien**: Wochenübersicht pro Ziel, aktuelle Serie und Rekord-Serie
 - „Zuletzt“ verwendet und „Schnell“-Eintrag (nur kcal/Makros eingeben)
 - Eigene Lebensmittel anlegen (Werte von der Verpackung)
 - Verlauf: 7-Tage-Diagramm und 30-Tage-Liste
