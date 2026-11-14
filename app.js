@@ -13,6 +13,7 @@ const DEFAULT_STATE = {
   days: {},          // 'YYYY-MM-DD' -> { entries: [], water: 0 }
   customFoods: [],   // gleiche Struktur wie BASE_FOODS, plus id
   recent: [],        // zuletzt verwendete Lebensmittel (Snapshot)
+  dishes: [],        // gespeicherte Gerichte: { id, name, portions, ingredients: [...] }
 };
 
 function loadState() {
@@ -71,6 +72,18 @@ function totals(entries) {
 function scale(food, amount) {
   const k = amount / 100;
   return { kcal: food.kcal * k, p: food.p * k, c: food.c * k, f: food.f * k };
+}
+
+// Nährwerte für eine Menge: Lebensmittel pro 100 g/ml, Gerichte pro Portion
+function nutr(food, amount) {
+  if (food.kind === 'dish') return { kcal: food.kcal * amount, p: food.p * amount, c: food.c * amount, f: food.f * amount };
+  return scale(food, amount);
+}
+
+function amountLabel(e) {
+  if (!e.amount) return '';
+  if (e.unit === 'Portion') return `${fmt1(e.amount)} ${e.amount === 1 ? 'Portion' : 'Portionen'}`;
+  return `${fmt(e.amount)} ${e.unit}`;
 }
 
 function defaultMeal() {
@@ -145,12 +158,13 @@ function renderDay() {
         <li class="entry">
           <div class="e-main">
             <div class="e-name">${esc(e.name)}</div>
-            <div class="e-sub">${e.amount ? fmt(e.amount) + ' ' + e.unit + ' · ' : ''}E ${fmt1(e.p)} · KH ${fmt1(e.c)} · F ${fmt1(e.f)}</div>
+            <div class="e-sub">${e.amount ? amountLabel(e) + ' · ' : ''}E ${fmt1(e.p)} · KH ${fmt1(e.c)} · F ${fmt1(e.f)}</div>
           </div>
           <div class="e-right">${fmt(e.kcal)} kcal<button class="del-btn" data-del="${e.id}" aria-label="Löschen">✕</button></div>
         </li>`).join('')}
       </ul>
-      <button class="add-btn" data-add="${meal.id}">+ Hinzufügen</button>`;
+      <button class="add-btn" data-add="${meal.id}">+ Hinzufügen</button>
+      ${list.length >= 2 ? `<button class="link-btn" data-savedish="${meal.id}">Als Gericht speichern</button>` : ''}`;
     wrap.append(card);
   }
 }
@@ -159,7 +173,9 @@ $('#meals').addEventListener('click', e => {
   const add = e.target.closest('[data-add]');
   if (add) return openAdd(add.dataset.add);
   const del = e.target.closest('[data-del]');
-  if (del) deleteEntry(del.dataset.del);
+  if (del) return deleteEntry(del.dataset.del);
+  const sd = e.target.closest('[data-savedish]');
+  if (sd) saveMealAsDish(sd.dataset.savedish);
 });
 
 function deleteEntry(id) {
@@ -230,30 +246,62 @@ $('#pickTabs').addEventListener('click', e => {
 });
 
 const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+function filterByQuery(list, rawQuery) {
+  const q = norm(rawQuery.trim());
+  if (!q) return list;
+  const words = q.split(/\s+/);
+  return list.filter(f => words.every(w => norm(f.name).includes(w)))
+    .sort((a, b) => norm(a.name).indexOf(words[0]) - norm(b.name).indexOf(words[0]));
+}
+
+function foodRowHtml(f, i, withEdit = false) {
+  const icon = f.kind === 'dish' ? ' 🍲' : f.barcode ? ' 📦' : f.custom ? ' ⭐' : '';
+  const sub = f.kind === 'dish'
+    ? `Gericht · ${f.ingredientCount} Zutat${f.ingredientCount === 1 ? '' : 'en'} · pro Portion`
+    : f.quick ? 'Schnelleintrag' : `pro 100 ${f.unit} · E ${fmt1(f.p)} · KH ${fmt1(f.c)} · F ${fmt1(f.f)}`;
+  const edit = withEdit && f.kind === 'dish'
+    ? `<button type="button" class="del-btn edit-btn" data-edit-dish="${f.id}" aria-label="Gericht bearbeiten">✎</button>` : '';
+  return `
+    <li data-i="${i}">
+      <div><div>${esc(f.name)}${icon}</div><div class="fr-sub">${sub}</div></div>
+      <div class="fr-right"><span class="fr-kcal">${fmt(f.kcal)} kcal</span>${edit}</div>
+    </li>`;
+}
+
 function renderResults() {
   if (pickSrc === 'quick') return;
-  const q = norm($('#foodSearch').value.trim());
-  let list = pickSrc === 'recent' && !q ? state.recent : allFoods();
-  if (q) {
-    const words = q.split(/\s+/);
-    list = list.filter(f => words.every(w => norm(f.name).includes(w)))
-      .sort((a, b) => norm(a.name).indexOf(words[0]) - norm(b.name).indexOf(words[0]));
-  }
+  const rawQ = $('#foodSearch').value;
+  const q = rawQ.trim();
+  const dishes = state.dishes.map(dishToFood);
+  let list;
+  if (pickSrc === 'dishes') list = filterByQuery(dishes, rawQ);
+  else if (pickSrc === 'recent' && !q) list = state.recent.map(freshRecent);
+  else list = filterByQuery([...dishes, ...allFoods()], rawQ);
   const ul = $('#foodResults');
+  const newDish = pickSrc === 'dishes' ? `<li class="new-dish" data-new-dish><div><strong>+ Neues Gericht anlegen</strong></div></li>` : '';
   if (!list.length) {
-    ul.innerHTML = `<li class="empty">${q ? 'Nichts gefunden. Lege es unter „Schnell“ oder in den Einstellungen an.' : 'Noch nichts eingetragen.'}</li>`;
+    const msg = pickSrc === 'dishes'
+      ? (q ? 'Kein passendes Gericht.' : 'Noch keine Gerichte. Speichere eine Mahlzeit als Gericht oder lege eins an.')
+      : q ? 'Nichts gefunden. Lege es unter „Schnell“ oder in den Einstellungen an.' : 'Noch nichts eingetragen.';
+    ul.innerHTML = `<li class="empty">${msg}</li>` + newDish;
+    ul._list = [];
     return;
   }
-  ul.innerHTML = list.slice(0, 60).map((f, i) => `
-    <li data-i="${i}">
-      <div><div>${esc(f.name)}${f.barcode ? ' 📦' : f.custom ? ' ⭐' : ''}</div>
-      <div class="fr-sub">${f.quick ? 'Schnelleintrag' : `pro 100 ${f.unit} · E ${fmt1(f.p)} · KH ${fmt1(f.c)} · F ${fmt1(f.f)}`}</div></div>
-      <div class="fr-kcal">${fmt(f.kcal)} kcal</div>
-    </li>`).join('');
+  ul.innerHTML = list.slice(0, 60).map((f, i) => foodRowHtml(f, i, pickSrc === 'dishes')).join('') + newDish;
   ul._list = list;
+}
+
+// Einträge aus „Zuletzt“ für Gerichte mit dem aktuellen Stand des Gerichts verknüpfen
+function freshRecent(r) {
+  if (r.kind !== 'dish') return r;
+  const d = state.dishes.find(x => x.id === r.id);
+  return d ? { ...dishToFood(d), lastAmount: r.lastAmount } : r;
 }
 $('#foodSearch').addEventListener('input', renderResults);
 $('#foodResults').addEventListener('click', e => {
+  const edit = e.target.closest('[data-edit-dish]');
+  if (edit) return openDishEditor(state.dishes.find(d => d.id === edit.dataset.editDish));
+  if (e.target.closest('[data-new-dish]')) return openDishEditor();
   const li = e.target.closest('li[data-i]');
   if (!li) return;
   const food = $('#foodResults')._list[Number(li.dataset.i)];
@@ -263,14 +311,21 @@ $('#foodResults').addEventListener('click', e => {
 
 function selectFood(food) {
   selected = food;
+  const isDish = food.kind === 'dish';
   $('#selName').textContent = food.name;
-  $('#selPer100').textContent = `pro 100 ${food.unit}: ${fmt(food.kcal)} kcal · E ${fmt1(food.p)} g · KH ${fmt1(food.c)} g · F ${fmt1(food.f)} g`;
-  $('#selUnit').textContent = food.unit;
+  $('#selPer100').textContent = isDish
+    ? `pro Portion: ${fmt(food.kcal)} kcal · E ${fmt1(food.p)} g · KH ${fmt1(food.c)} g · F ${fmt1(food.f)} g` +
+      (food.ingredientNames ? ` · ${food.ingredientNames}` : '')
+    : `pro 100 ${food.unit}: ${fmt(food.kcal)} kcal · E ${fmt1(food.p)} g · KH ${fmt1(food.c)} g · F ${fmt1(food.f)} g`;
+  $('#selUnit').textContent = isDish ? 'Portionen' : food.unit;
+  $('#amount').step = isDish ? '0.25' : '1';
   const amt = food.lastAmount || food.portion || 100;
   $('#amount').value = amt;
-  const chips = [...new Set([food.portion, 50, 100, 150, 200].filter(Boolean))].sort((a, b) => a - b);
-  $('#portionChips').innerHTML = chips.map(c =>
-    `<button type="button" class="chip" data-amt="${c}">${c} ${food.unit}${c === food.portion ? ' (Portion)' : ''}</button>`).join('');
+  const chips = isDish ? [0.5, 1, 1.5, 2]
+    : [...new Set([food.portion, 50, 100, 150, 200].filter(Boolean))].sort((a, b) => a - b);
+  $('#portionChips').innerHTML = chips.map(c => isDish
+    ? `<button type="button" class="chip" data-amt="${c}">${fmt1(c)} ${c === 1 ? 'Portion' : 'Portionen'}</button>`
+    : `<button type="button" class="chip" data-amt="${c}">${c} ${food.unit}${c === food.portion ? ' (Portion)' : ''}</button>`).join('');
   updatePreview();
   showStep('amount');
   setTimeout(() => $('#amount').select(), 50);
@@ -284,7 +339,7 @@ $('#amount').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preve
 
 function updatePreview() {
   const a = parseFloat($('#amount').value) || 0;
-  const n = scale(selected, a);
+  const n = nutr(selected, a);
   $('#amountPreview').textContent = `${fmt(n.kcal)} kcal · E ${fmt1(n.p)} g · KH ${fmt1(n.c)} g · F ${fmt1(n.f)} g`;
 }
 
@@ -307,7 +362,7 @@ $('#quickAddBtn').onclick = () => {
 };
 
 function addEntry(food) {
-  const vals = food.quick ? { kcal: food.kcal, p: food.p, c: food.c, f: food.f } : scale(food, food.amount);
+  const vals = food.quick ? { kcal: food.kcal, p: food.p, c: food.c, f: food.f } : nutr(food, food.amount);
   const day = getDay(currentDate, true);
   day.entries.push({
     id: uid(), meal: addMeal, name: food.name,
@@ -317,6 +372,8 @@ function addEntry(food) {
   // Zuletzt verwendet
   const snap = food.quick
     ? { name: food.name, kcal: food.kcal, p: food.p, c: food.c, f: food.f, quick: true }
+    : food.kind === 'dish'
+    ? { ...food, lastAmount: food.amount, amount: undefined }
     : { name: food.name, kcal: food.kcal, p: food.p, c: food.c, f: food.f, unit: food.unit, portion: food.portion, lastAmount: food.amount, custom: food.custom };
   state.recent = [snap, ...state.recent.filter(r => r.name !== food.name)].slice(0, 30);
   save();
@@ -368,6 +425,12 @@ $('#historyList').addEventListener('click', jumpTo);
 const goalsForm = $('#goalsForm');
 function renderSettings() {
   for (const k of Object.keys(state.goals)) goalsForm.elements[k].value = state.goals[k];
+  $('#dishList').innerHTML = state.dishes.map(d => {
+    const f = dishToFood(d);
+    return `<li data-dish="${d.id}"><div><div>${esc(d.name)}</div>
+      <div class="muted">${fmt(f.kcal)} kcal pro Portion · ${d.portions} Portion${d.portions === 1 ? '' : 'en'} · ${d.ingredients.length} Zutaten</div></div>
+      <span class="muted">✎</span></li>`;
+  }).join('');
   $('#customFoodList').innerHTML = state.customFoods.map(f => `
     <li><div><div>${esc(f.name)}</div><div class="muted">${fmt(f.kcal)} kcal / 100 ${f.unit}</div></div>
     <button class="del-btn" data-delfood="${f.id}" aria-label="Löschen">✕</button></li>`).join('');
@@ -403,7 +466,7 @@ $('#foodForm').addEventListener('submit', e => {
     barcode: f.barcode.value || undefined,
   });
   renderSettings(); toast('Lebensmittel gespeichert');
-  if (selectAfterFoodSave && addDialog.open) selectFood({ ...food, custom: true });
+  if (selectAfterFoodSave) deliverScanned({ ...food, custom: true });
   selectAfterFoodSave = false;
 });
 
@@ -505,7 +568,14 @@ function getDetector() {
   return detectorPromise;
 }
 
-async function openScanner() {
+let scanTarget = 'add';
+function deliverScanned(food) {
+  if (scanTarget === 'dish' && dishDialog.open) addIngredient(food);
+  else if (addDialog.open) selectFood(food);
+}
+
+async function openScanner(target = 'add') {
+  scanTarget = target;
   $('#manualCode').value = '';
   setScanStatus('Kamera wird gestartet …');
   scanDialog.showModal();
@@ -562,7 +632,7 @@ function stopCamera() {
 }
 scanDialog.addEventListener('close', stopCamera);
 
-$('#scanBtn').onclick = openScanner;
+$('#scanBtn').onclick = () => openScanner('add');
 $('#manualCodeForm').addEventListener('submit', e => {
   e.preventDefault();
   const code = $('#manualCode').value.replace(/\D/g, '');
@@ -607,7 +677,7 @@ async function lookupBarcode(code) {
   const known = state.customFoods.find(f => f.barcode && sameBarcode(f.barcode, code));
   if (known) {
     scanDialog.close();
-    return selectFood({ ...known, custom: true });
+    return deliverScanned({ ...known, custom: true });
   }
   scanBusy = true;
   setScanStatus(`Suche Produkt ${code} …`);
@@ -624,7 +694,7 @@ async function lookupBarcode(code) {
       return openFoodDialog({ barcode: code, name: food.name }, true, 'Nährwerte unvollständig – bitte von der Packung ergänzen.');
     }
     const saved = saveCustomFood(food);
-    selectFood({ ...saved, custom: true });
+    deliverScanned({ ...saved, custom: true });
   } catch (err) {
     console.warn(err);
     if (!scanDialog.open) return;
@@ -635,7 +705,183 @@ async function lookupBarcode(code) {
   }
 }
 
-for (const d of [addDialog, foodDialog, scanDialog]) {
+/* ---------- Gerichte ---------- */
+const dishDialog = $('#dishDialog');
+const dishForm = $('#dishForm');
+let dishDraft = null; // { id?, name, portions, ingredients }
+
+// Zutat: { name, unit, amount, per100: {kcal,p,c,f} } oder feste Werte { name, fixed: {kcal,p,c,f} }
+function ingValues(i) {
+  return i.fixed ? i.fixed : scale(i.per100, Number(i.amount) || 0);
+}
+
+function dishTotals(d) {
+  return d.ingredients.reduce((t, i) => {
+    const v = ingValues(i);
+    return { kcal: t.kcal + v.kcal, p: t.p + v.p, c: t.c + v.c, f: t.f + v.f };
+  }, { kcal: 0, p: 0, c: 0, f: 0 });
+}
+
+function dishToFood(d) {
+  const t = dishTotals(d);
+  const n = Math.max(1, Number(d.portions) || 1);
+  return {
+    kind: 'dish', id: d.id, name: d.name, unit: 'Portion', portion: 1,
+    kcal: t.kcal / n, p: t.p / n, c: t.c / n, f: t.f / n,
+    ingredientCount: d.ingredients.length,
+    ingredientNames: d.ingredients.map(i => i.name.replace(/\s*\(.*\)$/, '')).join(', '),
+  };
+}
+
+function ingredientFromFood(food) {
+  if (food.quick) return { name: food.name, fixed: { kcal: food.kcal, p: food.p, c: food.c, f: food.f } };
+  return {
+    name: food.name, unit: food.unit || 'g', amount: food.lastAmount || food.portion || 100,
+    per100: { kcal: food.kcal, p: food.p, c: food.c, f: food.f },
+  };
+}
+
+function ingredientFromEntry(e) {
+  const vals = { kcal: e.kcal, p: e.p, c: e.c, f: e.f };
+  if (e.amount > 0 && e.unit && e.unit !== 'Portion') {
+    const k = 100 / e.amount;
+    return { name: e.name, unit: e.unit, amount: e.amount,
+      per100: { kcal: r1(vals.kcal * k), p: r1(vals.p * k), c: r1(vals.c * k), f: r1(vals.f * k) } };
+  }
+  const label = e.unit === 'Portion' ? `${e.name} (${amountLabel(e)})` : e.name;
+  return { name: label, fixed: vals };
+}
+
+function openDishEditor(dish = null, prefillIngredients = null) {
+  dishDraft = dish
+    ? structuredClone(dish)
+    : { name: '', portions: 1, ingredients: prefillIngredients || [] };
+  $('#dishTitle').textContent = dish ? 'Gericht bearbeiten' : 'Neues Gericht';
+  dishForm.elements.name.value = dishDraft.name;
+  dishForm.elements.portions.value = dishDraft.portions;
+  $('#dishSearch').value = '';
+  $('#dishResults').innerHTML = '';
+  $('#dishError').textContent = '';
+  $('#dishDeleteBtn').hidden = !dish;
+  renderDishIngredients();
+  dishDialog.showModal();
+  if (!dish) setTimeout(() => dishForm.elements.name.focus(), 50);
+}
+
+function renderDishIngredients() {
+  $('#dishIngredients').innerHTML = dishDraft.ingredients.map((i, idx) => `
+    <li>
+      <span class="ing-name" title="${esc(i.name)}">${esc(i.name)}</span>
+      ${i.fixed ? '<span class="ing-amt"></span>'
+        : `<span class="ing-amt"><input type="number" min="0" step="1" inputmode="decimal" data-amt-idx="${idx}" value="${i.amount}" aria-label="Menge">${i.unit}</span>`}
+      <span class="ing-kcal" data-kcal-idx="${idx}">${fmt(ingValues(i).kcal)} kcal</span>
+      <button type="button" class="del-btn" data-rm-idx="${idx}" aria-label="Zutat entfernen">✕</button>
+    </li>`).join('');
+  renderDishTotals();
+}
+
+function renderDishTotals() {
+  const t = dishTotals(dishDraft);
+  const n = Math.max(1, Number(dishForm.elements.portions.value) || 1);
+  $('#dishTotals').textContent = dishDraft.ingredients.length
+    ? `Pro Portion: ${fmt(t.kcal / n)} kcal · E ${fmt1(t.p / n)} g · KH ${fmt1(t.c / n)} g · F ${fmt1(t.f / n)} g` +
+      (n > 1 ? `  (gesamt ${fmt(t.kcal)} kcal)` : '')
+    : 'Füge Zutaten hinzu, um die Nährwerte zu sehen.';
+}
+
+function addIngredient(food) {
+  dishDraft.ingredients.push(ingredientFromFood(food));
+  $('#dishSearch').value = '';
+  $('#dishResults').innerHTML = '';
+  $('#dishError').textContent = '';
+  renderDishIngredients();
+  const inputs = $$('#dishIngredients input');
+  const last = dishDraft.ingredients[dishDraft.ingredients.length - 1];
+  if (!last.fixed && inputs.length) setTimeout(() => inputs[inputs.length - 1].select(), 30);
+}
+
+$('#dishIngredients').addEventListener('input', e => {
+  const idx = e.target.dataset.amtIdx;
+  if (idx === undefined) return;
+  dishDraft.ingredients[idx].amount = parseFloat(e.target.value) || 0;
+  $(`[data-kcal-idx="${idx}"]`).textContent = `${fmt(ingValues(dishDraft.ingredients[idx]).kcal)} kcal`;
+  renderDishTotals();
+});
+$('#dishIngredients').addEventListener('click', e => {
+  const rm = e.target.closest('[data-rm-idx]');
+  if (!rm) return;
+  dishDraft.ingredients.splice(Number(rm.dataset.rmIdx), 1);
+  renderDishIngredients();
+});
+dishForm.elements.portions.addEventListener('input', renderDishTotals);
+
+function renderDishResults() {
+  const q = $('#dishSearch').value;
+  const ul = $('#dishResults');
+  if (!q.trim()) { ul.innerHTML = ''; return; }
+  const list = filterByQuery(allFoods(), q).slice(0, 12);
+  ul.innerHTML = list.length ? list.map((f, i) => foodRowHtml(f, i)).join('')
+    : '<li class="empty">Nichts gefunden – lege es unter Einstellungen → Eigene Lebensmittel an oder scanne den Barcode.</li>';
+  ul._list = list;
+}
+$('#dishSearch').addEventListener('input', renderDishResults);
+$('#dishResults').addEventListener('click', e => {
+  const li = e.target.closest('li[data-i]');
+  if (li) addIngredient($('#dishResults')._list[Number(li.dataset.i)]);
+});
+$('#dishScanBtn').onclick = () => openScanner('dish');
+
+// Enter soll das Formular nicht versehentlich speichern
+dishForm.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || e.target.type === 'submit') return;
+  e.preventDefault();
+  if (e.target.id === 'dishSearch') $('#dishResults li[data-i]')?.click();
+  else e.target.blur();
+});
+
+dishForm.addEventListener('submit', e => {
+  e.preventDefault();
+  const name = dishForm.elements.name.value.trim();
+  const portions = Math.max(1, Math.round(Number(dishForm.elements.portions.value) || 1));
+  if (!name) { $('#dishError').textContent = 'Bitte gib dem Gericht einen Namen.'; dishForm.elements.name.focus(); return; }
+  if (!dishDraft.ingredients.length) { $('#dishError').textContent = 'Füge mindestens eine Zutat hinzu.'; $('#dishSearch').focus(); return; }
+  const dish = {
+    id: dishDraft.id || uid(), name, portions,
+    ingredients: dishDraft.ingredients.map(i => i.fixed ? i : { ...i, amount: Number(i.amount) || 0 }),
+  };
+  const idx = state.dishes.findIndex(d => d.id === dish.id);
+  if (idx >= 0) state.dishes[idx] = dish; else state.dishes.unshift(dish);
+  save();
+  dishDialog.close();
+  render();
+  if (addDialog.open) { setPickSrc('dishes'); }
+  else toast(`Gericht „${name}“ gespeichert`);
+});
+
+$('#dishDeleteBtn').onclick = () => {
+  if (!dishDraft?.id || !confirm(`Gericht „${dishDraft.name}“ löschen?`)) return;
+  state.dishes = state.dishes.filter(d => d.id !== dishDraft.id);
+  state.recent = state.recent.filter(r => !(r.kind === 'dish' && r.id === dishDraft.id));
+  save();
+  dishDialog.close();
+  render();
+  if (addDialog.open) renderResults();
+  else toast('Gericht gelöscht');
+};
+
+function saveMealAsDish(mealId) {
+  const entries = getDay(currentDate).entries.filter(e => e.meal === mealId);
+  if (!entries.length) return;
+  openDishEditor(null, entries.map(ingredientFromEntry));
+}
+
+$('#newDishBtn').onclick = () => openDishEditor();
+$('#dishList').addEventListener('click', e => {
+  const li = e.target.closest('[data-dish]');
+  if (li) openDishEditor(state.dishes.find(d => d.id === li.dataset.dish));
+});
+
+for (const d of [addDialog, foodDialog, scanDialog, dishDialog]) {
   d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
 }
 $('#foodSearch').addEventListener('keydown', e => {

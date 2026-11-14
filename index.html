@@ -78,8 +78,14 @@
       </form>
 
       <div class="card">
+        <h2>Gerichte</h2>
+        <ul id="dishList" class="plain-list dish-list" data-empty="Noch keine Gerichte."></ul>
+        <button class="btn" id="newDishBtn" type="button">+ Neues Gericht</button>
+      </div>
+
+      <div class="card">
         <h2>Eigene Lebensmittel</h2>
-        <ul id="customFoodList" class="plain-list"></ul>
+        <ul id="customFoodList" class="plain-list" data-empty="Noch keine eigenen Lebensmittel."></ul>
         <button class="btn" id="newFoodBtn" type="button">+ Neues Lebensmittel</button>
       </div>
 
@@ -118,6 +124,7 @@
         <div class="segmented" id="pickTabs">
           <button type="button" class="active" data-src="all">Alle</button>
           <button type="button" data-src="recent">Zuletzt</button>
+          <button type="button" data-src="dishes">Gerichte</button>
           <button type="button" data-src="quick">Schnell</button>
         </div>
         <ul id="foodResults" class="food-results"></ul>
@@ -172,6 +179,35 @@
         <label>Fett<input name="f" type="number" min="0" step="0.1" value="0" inputmode="decimal"></label>
       </div>
       <button class="btn primary" value="save">Speichern</button>
+    </form>
+  </dialog>
+
+  <!-- Dialog: Gericht bearbeiten -->
+  <dialog id="dishDialog">
+    <form class="sheet" id="dishForm" novalidate>
+      <header class="sheet-head">
+        <h3 id="dishTitle">Neues Gericht</h3>
+        <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
+      </header>
+      <div class="row" style="margin-top:0">
+        <label style="flex:3">Name<input name="name" placeholder="z. B. Chili con Carne" autocomplete="off"></label>
+        <label style="flex:1">Portionen<input name="portions" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
+      </div>
+      <p class="sub-h">Zutaten <span class="muted">(Gesamtmenge für alle Portionen)</span></p>
+      <ul id="dishIngredients" class="ing-list"></ul>
+      <div class="search-row">
+        <input type="search" id="dishSearch" placeholder="Zutat suchen und antippen …" autocomplete="off">
+        <button type="button" class="scan-btn" id="dishScanBtn" aria-label="Zutat per Barcode scannen" title="Barcode scannen">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 7V4h3M18 4h3v3M21 17v3h-3M6 20H3v-3M7 8v8M10 8v8M13 8v8M16 8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <ul id="dishResults" class="food-results compact"></ul>
+      <p class="preview" id="dishTotals"></p>
+      <p class="form-error" id="dishError" role="alert"></p>
+      <div class="row">
+        <button type="button" class="btn danger" id="dishDeleteBtn">Löschen</button>
+        <button type="submit" class="btn primary">Speichern</button>
+      </div>
     </form>
   </dialog>
 
