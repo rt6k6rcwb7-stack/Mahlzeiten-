@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2f7d5b">
+  <title>Mahlzeiten</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="icon-btn" id="prevDay" aria-label="Vorheriger Tag">‹</button>
+    <button class="date-btn" id="dateLabel">Heute</button>
+    <input type="date" id="datePicker" class="visually-hidden" tabindex="-1">
+    <button class="icon-btn" id="nextDay" aria-label="Nächster Tag">›</button>
+  </header>
+
+  <main>
+    <!-- Tagesansicht -->
+    <section id="view-day" class="view active">
+      <div class="card summary">
+        <div class="ring-wrap">
+          <svg viewBox="0 0 120 120" class="ring" aria-hidden="true">
+            <circle cx="60" cy="60" r="52" class="ring-bg"/>
+            <circle cx="60" cy="60" r="52" class="ring-fg" id="kcalRing"/>
+          </svg>
+          <div class="ring-text">
+            <strong id="kcalLeft">0</strong>
+            <span id="kcalLeftLabel">kcal übrig</span>
+          </div>
+        </div>
+        <div class="macros">
+          <div class="macro" data-m="p"><span class="m-name">Eiweiß</span><div class="bar"><i></i></div><span class="m-val"></span></div>
+          <div class="macro" data-m="c"><span class="m-name">Kohlenhydrate</span><div class="bar"><i></i></div><span class="m-val"></span></div>
+          <div class="macro" data-m="f"><span class="m-name">Fett</span><div class="bar"><i></i></div><span class="m-val"></span></div>
+          <div class="kcal-line"><span id="kcalEaten">0</span> von <span id="kcalGoal">0</span> kcal</div>
+        </div>
+      </div>
+
+      <div class="card water">
+        <div><strong>Wasser</strong> <span id="waterVal" class="muted"></span></div>
+        <div class="water-btns">
+          <button class="chip" data-water="-250">−</button>
+          <button class="chip" data-water="250">+ 250 ml</button>
+          <button class="chip" data-water="500">+ 500 ml</button>
+        </div>
+      </div>
+
+      <div id="meals"></div>
+    </section>
+
+    <!-- Verlauf -->
+    <section id="view-history" class="view">
+      <div class="card">
+        <h2>Letzte 7 Tage</h2>
+        <div id="weekChart" class="week-chart"></div>
+        <p class="muted" id="weekAvg"></p>
+      </div>
+      <div class="card">
+        <h2>Letzte 30 Tage</h2>
+        <ul id="historyList" class="history-list"></ul>
+      </div>
+    </section>
+
+    <!-- Einstellungen -->
+    <section id="view-settings" class="view">
+      <form class="card" id="goalsForm">
+        <h2>Tagesziele</h2>
+        <label>Kalorien (kcal)<input type="number" name="kcal" min="0" step="10" inputmode="numeric"></label>
+        <label>Eiweiß (g)<input type="number" name="p" min="0" inputmode="numeric"></label>
+        <label>Kohlenhydrate (g)<input type="number" name="c" min="0" inputmode="numeric"></label>
+        <label>Fett (g)<input type="number" name="f" min="0" inputmode="numeric"></label>
+        <label>Wasser (ml)<input type="number" name="water" min="0" step="250" inputmode="numeric"></label>
+        <button class="btn primary" type="submit">Speichern</button>
+      </form>
+
+      <div class="card">
+        <h2>Eigene Lebensmittel</h2>
+        <ul id="customFoodList" class="plain-list"></ul>
+        <button class="btn" id="newFoodBtn" type="button">+ Neues Lebensmittel</button>
+      </div>
+
+      <div class="card">
+        <h2>Daten</h2>
+        <p class="muted">Alle Daten liegen nur auf diesem Gerät im Browser. Exportiere sie regelmäßig als Backup.</p>
+        <div class="row">
+          <button class="btn" id="exportBtn" type="button">Exportieren</button>
+          <label class="btn">Importieren<input type="file" id="importFile" accept="application/json" hidden></label>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab active" data-view="day">📅<span>Tag</span></button>
+    <button class="tab" data-view="history">📈<span>Verlauf</span></button>
+    <button class="tab" data-view="settings">⚙️<span>Einstellungen</span></button>
+  </nav>
+
+  <!-- Dialog: Eintrag hinzufügen -->
+  <dialog id="addDialog">
+    <form method="dialog" class="sheet" id="addForm">
+      <header class="sheet-head">
+        <h3 id="addTitle">Hinzufügen</h3>
+        <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
+      </header>
+
+      <div id="pickStep">
+        <input type="search" id="foodSearch" placeholder="Lebensmittel suchen …" autocomplete="off">
+        <div class="segmented" id="pickTabs">
+          <button type="button" class="active" data-src="all">Alle</button>
+          <button type="button" data-src="recent">Zuletzt</button>
+          <button type="button" data-src="quick">Schnell</button>
+        </div>
+        <ul id="foodResults" class="food-results"></ul>
+        <div id="quickForm" hidden>
+          <label>Bezeichnung<input name="qName" placeholder="z. B. Mittagessen Kantine"></label>
+          <div class="grid4">
+            <label>kcal<input name="qKcal" type="number" min="0" inputmode="decimal"></label>
+            <label>Eiweiß g<input name="qP" type="number" min="0" step="0.1" inputmode="decimal"></label>
+            <label>KH g<input name="qC" type="number" min="0" step="0.1" inputmode="decimal"></label>
+            <label>Fett g<input name="qF" type="number" min="0" step="0.1" inputmode="decimal"></label>
+          </div>
+          <button class="btn primary" type="button" id="quickAddBtn">Eintragen</button>
+        </div>
+      </div>
+
+      <div id="amountStep" hidden>
+        <p class="selected-food"><strong id="selName"></strong><br><span class="muted" id="selPer100"></span></p>
+        <label>Menge (<span id="selUnit">g</span>)
+          <input type="number" id="amount" min="0" step="1" inputmode="decimal">
+        </label>
+        <div class="row" id="portionChips"></div>
+        <p class="preview" id="amountPreview"></p>
+        <div class="row">
+          <button class="btn" type="button" id="backBtn">Zurück</button>
+          <button class="btn primary" type="button" id="confirmAddBtn">Eintragen</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dialog: Eigenes Lebensmittel -->
+  <dialog id="foodDialog">
+    <form method="dialog" class="sheet" id="foodForm">
+      <header class="sheet-head">
+        <h3>Eigenes Lebensmittel</h3>
+        <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
+      </header>
+      <label>Name<input name="name" required></label>
+      <div class="row">
+        <label>Einheit
+          <select name="unit"><option value="g">Gramm</option><option value="ml">Milliliter</option></select>
+        </label>
+        <label>Portion<input name="portion" type="number" min="1" value="100" inputmode="decimal"></label>
+      </div>
+      <p class="muted">Nährwerte pro 100 g/ml (steht auf der Verpackung):</p>
+      <div class="grid4">
+        <label>kcal<input name="kcal" type="number" min="0" step="0.1" required inputmode="decimal"></label>
+        <label>Eiweiß<input name="p" type="number" min="0" step="0.1" value="0" inputmode="decimal"></label>
+        <label>KH<input name="c" type="number" min="0" step="0.1" value="0" inputmode="decimal"></label>
+        <label>Fett<input name="f" type="number" min="0" step="0.1" value="0" inputmode="decimal"></label>
+      </div>
+      <button class="btn primary" value="save">Speichern</button>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="foods.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
