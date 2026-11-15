@@ -488,3 +488,9 @@ dialog::backdrop { background: rgba(8, 12, 10, .45); -webkit-backdrop-filter: bl
 .food-results .section-head:hover { background: transparent; }
 .food-results .loading { cursor: default; color: var(--muted); justify-content: center; }
 .food-results .loading:hover { background: transparent; }
+
+.src-ch { color: #c0392b; background: color-mix(in srgb, #d63c2f 13%, transparent); }
+.sources { list-style: none; margin: 0; padding: 0; font-size: .85rem; color: var(--muted); }
+.sources li { padding: 8px 0; border-top: 1px solid var(--line); line-height: 1.45; }
+.sources li:first-child { border-top: 0; padding-top: 0; }
+.sources a { color: var(--accent); }

@@ -296,8 +296,22 @@ let addMeal = 'breakfast';
 let pickSrc = 'all';
 let selected = null;
 
+// Schweizer Nährwertdatenbank als Hauptquelle; eigene Richtwerte nur, wo sie dort fehlen
+const SWISS = (window.SWISS_FOODS || []).map(f => ({ ...f, source: 'ch' }));
+// Richtwerte, für die es in der Schweizer Datenbank einen gleichwertigen Eintrag gibt
+const COVERED_BY_SWISS = new Set(["Reis (gekocht)", "Nudeln (gekocht)", "Hafermilch", "Joghurt natur 3,5 %", "Magerquark", "Ei (Stück ≈ 60 g)", "Hähnchenbrust", "Putenbrust", "Rinderhack", "Kichererbsen (gekocht)", "Weintrauben", "Brokkoli", "Mandeln", "Walnüsse", "Zartbitterschokolade 70 %", "Chips", "Bratwurst", "Cola", "Wein (rot/weiß)", "Roggenbrot", "Laugenbrötchen", "Croissant", "Baguette", "Knuspermüsli (Granola)", "Bircher Müsli", "Reiswaffel", "Omelett", "Couscous (gekocht)", "Gnocchi", "Spätzle (gekocht)", "Kartoffelpüree", "Saure Sahne", "Vanillepudding", "Eiscreme (Vanille)", "Hähnchenschenkel", "Hackfleisch (gemischt)", "Wiener Würstchen", "Schinken (roh)", "Kabeljau / Seelachs", "Garnelen", "Räucherlachs", "Sojadrink", "Mandeldrink (ungesüßt)", "Erdbeeren", "Heidelbeeren", "Himbeeren", "Pfirsich / Nektarine", "Pflaumen", "Kirschen", "Mandarine / Clementine", "Datteln (getrocknet)", "Rosinen", "Champignons", "Erbsen (TK)", "Oliven (grün)", "Cashewkerne", "Haselnüsse", "Erdnüsse (geröstet, gesalzen)", "Pistazien (gesalzen)", "Pesto (Basilikum)", "Bolognese-Soße", "Balsamico-Essig", "Sojasoße", "Berliner / Krapfen", "Donut", "Lasagne", "Kartoffelsalat (mit Mayo)", "Energy Drink", "Alkoholfreies Bier", "Sekt", "Spirituosen (40 %)", "Salat (Blattsalat)", "Müsli (ungezuckert)", "Schweineschnitzel (roh)", "Rindersteak", "Cola Zero / Light", "Gummibärchen"]);
+let extraBaseCache = null;
+const extraBase = () => extraBaseCache ||= (() => {
+  const core = n => norm(n.replace(/\s*\(.*\)\s*/g, ' ').trim());
+  const swissKeys = SWISS.flatMap(f => [norm(f.name), ...(f.syn ? [norm(f.syn)] : [])]);
+  return window.BASE_FOODS.filter(b => {
+    if (COVERED_BY_SWISS.has(b.name)) return false;
+    const c = core(b.name);
+    return !swissKeys.some(k => k === c || k.startsWith(c + ',') || k.startsWith(c + ' ('));
+  });
+})();
 function allFoods() {
-  return [...state.customFoods.map(f => ({ ...f, custom: true })), ...window.BASE_FOODS];
+  return [...state.customFoods.map(f => ({ ...f, custom: true })), ...SWISS, ...extraBase()];
 }
 
 function openAdd(meal) {
@@ -328,13 +342,34 @@ $('#pickTabs').addEventListener('click', e => {
   if (b) setPickSrc(b.dataset.src);
 });
 
-const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const norm = s => s.toLowerCase().replace(/ß/g, 'ss').normalize('NFD').replace(/[̀-ͯ]/g, '');
 function filterByQuery(list, rawQuery) {
   const q = norm(rawQuery.trim());
   if (!q) return list;
-  const words = q.split(/\s+/);
-  return list.filter(f => words.every(w => norm(f.name).includes(w)))
-    .sort((a, b) => norm(a.name).indexOf(words[0]) - norm(b.name).indexOf(words[0]));
+  const words = q.split(/[\s-]+/).filter(Boolean);
+  // Wortformen für Mehrzahl/Einzahl: „pflaumen“ → pflaumen, pflaume, pflaum …
+  const forms = w => w.length > 4 ? [...new Set([w, w.replace(/n$/, ''), w.replace(/en$/, ''), w.replace(/e$/, ''), w.replace(/s$/, '')])] : [w];
+  const wordForms = words.map(forms);
+  const f0 = wordForms[0];
+  const scored = [];
+  for (const f of list) {
+    const n = norm(f.name), s = f.syn ? norm(f.syn) : '';
+    if (!wordForms.every(fs => fs.some(w => n.includes(w) || s.includes(w)))) continue;
+    const tokens = n.split(/[\s,()/-]+/);
+    const synTokens = s.split(/[\s,]+/);
+    let score;
+    if (f0.includes(tokens[0])) score = 0;                              // „Pflaume, roh“ für „pflaumen“
+    else if (synTokens.some(t => f0.includes(t))) score = 0.5;          // exakter Suchbegriff (z. B. „Sahne“ → Rahm)
+    else if (f0.some(w => n.startsWith(w))) score = 1;                  // „Apfelsaft“
+    else if (tokens.some(t => f0.some(w => t.endsWith(w)))) score = 1.5;  // zusammengesetzt: „Kopfsalat“ für „salat“
+    else if (tokens.some(t => f0.some(w => t.startsWith(w)))) score = 2; // Wortanfang im Namen
+    else if (synTokens.some(t => f0.some(w => t.startsWith(w)))) score = 2.5; // Synonym
+    else score = 3;
+    if (f.custom || f.kind === 'dish') score -= 0.6;         // eigene Sachen zuerst
+    if (tokens.filter(Boolean).length <= 4 && /\b(roh|nature|durchschnitt)\b/.test(n)) score -= 0.2; // Grundform bevorzugen
+    scored.push([score, n.length, f]);
+  }
+  return scored.sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
 }
 
 function sourceOf(f) {
@@ -342,7 +377,8 @@ function sourceOf(f) {
   if (f.source === 'off' || (f.barcode && f.source !== 'manual')) return ['off', 'Open Food Facts'];
   if (f.custom) return ['own', 'Eigene'];
   if (f.quick) return ['own', 'Schnell'];
-  return ['base', 'Basis'];
+  if (f.source === 'ch') return ['ch', 'Schweizer DB'];
+  return ['base', 'Richtwert'];
 }
 const srcBadge = f => { const [k, l] = sourceOf(f); return `<span class="src src-${k}">${l}</span>`; };
 
@@ -481,7 +517,7 @@ function addEntry(food) {
     ? { name: food.name, ...pickN(food), quick: true }
     : food.kind === 'dish'
     ? { ...food, lastAmount: food.amount, amount: undefined }
-    : { name: food.name, ...pickN(food), unit: food.unit, portion: food.portion, lastAmount: food.amount, custom: food.custom, source: food.source, barcode: food.barcode };
+    : { name: food.name, ...pickN(food), unit: food.unit, portion: food.portion, lastAmount: food.amount, custom: food.custom, source: food.source, barcode: food.barcode, syn: food.syn };
   state.recent = [snap, ...state.recent.filter(r => r.name !== food.name)].slice(0, 30);
   save();
   addDialog.close();

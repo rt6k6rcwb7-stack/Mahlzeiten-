@@ -6,7 +6,7 @@ Kein Server, kein Konto: alle Daten bleiben lokal im Browser (`localStorage`).
 ## Funktionen
 - Tagesansicht mit Kalorienring, Eiweiß/Kohlenhydrate/Fett und Wasserzähler
 - Mahlzeiten: Frühstück, Mittagessen, Abendessen, Snacks
-- Lebensmittel aus mehreren Quellen: **Basis** (über 260 allgemeine Lebensmittel und Gerichte, offline), **Open Food Facts** (Online-Suche nach Namen und Barcode), **eigene** Lebensmittel und Gerichte – jeweils mit Quellen-Kennzeichnung
+- Lebensmittel aus mehreren Quellen: **Schweizer Nährwertdatenbank** (über 1.200 Lebensmittel, offline), **Richtwerte** für Fehlendes (z. B. Döner, Skyr), **Open Food Facts** (Online-Suche nach Namen und Barcode), **eigene** Lebensmittel und Gerichte – jeweils mit Quellen-Kennzeichnung
 - **Korrigieren**: Einträge antippen, um Menge (Nährwerte werden mitgerechnet), Mahlzeit, Datum oder Nährwerte zu ändern; ebenso Aktivitäten und eigene Lebensmittel
 - **Barcode-Scanner**: Produkt scannen → Nährwerte kommen aus [Open Food Facts](https://world.openfoodfacts.org); einmal gescannte Produkte werden lokal gespeichert und funktionieren danach auch offline. Unbekannte Produkte trägst du einmal von der Packung ein.
 - **Gerichte**: Zutaten mit Mengen und Portionszahl speichern (z. B. Chili für 4 Portionen) oder eine eingetragene Mahlzeit per „Als Gericht speichern“ übernehmen; beim Eintragen nur noch die Portionen wählen
@@ -36,3 +36,12 @@ Für die Nutzung auf dem Handy z. B. über GitHub Pages veröffentlichen
 - Die Kamera funktioniert nur über HTTPS (z. B. GitHub Pages) oder `localhost`.
 - Android/Chrome nutzt den eingebauten `BarcodeDetector`; andere Browser (z. B. Safari auf dem iPhone)
   nutzen die mitgelieferte WebAssembly-Variante in `vendor/` ([barcode-detector](https://github.com/Sec-ant/barcode-detector) / [zxing-wasm](https://github.com/Sec-ant/zxing-wasm), MIT-Lizenz).
+
+## Datenquellen
+- **Schweizer Nährwertdatenbank**, Version 7.1 – Bundesamt für Lebensmittelsicherheit und Veterinärwesen BLV,
+  [naehrwertdaten.ch](https://naehrwertdaten.ch). Nutzung mit Quellenvermerk erlaubt (auch für Ernährungstagebuch-Apps).
+  `swissfoods.js` wird mit `tools/convert_swiss.py` aus der Excel-Datei erzeugt:
+  `python3 tools/convert_swiss.py Schweizer_Nahrwertdatenbank.xlsx swissfoods.js` (benötigt `openpyxl`).
+  Getränke werden über die Dichte auf 100 ml umgerechnet; Portionsgrößen und deutsche Suchbegriffe ergänzt die App.
+- **Open Food Facts** – Open Database License (ODbL), [openfoodfacts.org](https://world.openfoodfacts.org).
+- **Richtwerte** in `foods.js` – gerundete Durchschnittswerte für Lebensmittel, die in der Schweizer Datenbank fehlen.
