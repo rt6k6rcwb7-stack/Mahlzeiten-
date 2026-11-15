@@ -6,7 +6,8 @@ Kein Server, kein Konto: alle Daten bleiben lokal im Browser (`localStorage`).
 ## Funktionen
 - Tagesansicht mit Kalorienring, Eiweiß/Kohlenhydrate/Fett und Wasserzähler
 - Mahlzeiten: Frühstück, Mittagessen, Abendessen, Snacks
-- Lebensmittel-Suche (~65 gängige Lebensmittel, Werte pro 100 g/ml) mit Mengen- und Portionsauswahl
+- Lebensmittel aus mehreren Quellen: **Basis** (über 260 allgemeine Lebensmittel und Gerichte, offline), **Open Food Facts** (Online-Suche nach Namen und Barcode), **eigene** Lebensmittel und Gerichte – jeweils mit Quellen-Kennzeichnung
+- **Korrigieren**: Einträge antippen, um Menge (Nährwerte werden mitgerechnet), Mahlzeit, Datum oder Nährwerte zu ändern; ebenso Aktivitäten und eigene Lebensmittel
 - **Barcode-Scanner**: Produkt scannen → Nährwerte kommen aus [Open Food Facts](https://world.openfoodfacts.org); einmal gescannte Produkte werden lokal gespeichert und funktionieren danach auch offline. Unbekannte Produkte trägst du einmal von der Packung ein.
 - **Gerichte**: Zutaten mit Mengen und Portionszahl speichern (z. B. Chili für 4 Portionen) oder eine eingetragene Mahlzeit per „Als Gericht speichern“ übernehmen; beim Eintragen nur noch die Portionen wählen
 - **Gewicht**: manuell eintragen (optional mit Körperfett), Zielgewicht, Verlaufsdiagramm (30 Tage bis alles)

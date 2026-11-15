@@ -345,11 +345,13 @@
   <dialog id="foodDialog">
     <form method="dialog" class="sheet" id="foodForm">
       <header class="sheet-head">
-        <h3>Eigenes Lebensmittel</h3>
+        <h3 id="foodTitle">Eigenes Lebensmittel</h3>
         <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
       </header>
       <label>Name<input name="name" required></label>
       <input type="hidden" name="barcode">
+      <input type="hidden" name="id">
+      <input type="hidden" name="source">
       <p class="muted" id="foodBarcodeInfo" hidden></p>
       <div class="row">
         <label>Einheit
@@ -370,6 +372,63 @@
         <label>Salz<input name="salt" type="number" min="0" step="0.01" placeholder="0" inputmode="decimal"></label>
       </div>
       <button class="btn primary" value="save">Speichern</button>
+    </form>
+  </dialog>
+
+  <!-- Dialog: Eintrag bearbeiten -->
+  <dialog id="editDialog">
+    <form class="sheet" id="editForm" novalidate>
+      <header class="sheet-head">
+        <h3>Eintrag bearbeiten</h3>
+        <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
+      </header>
+      <label>Bezeichnung<input name="name" autocomplete="off"></label>
+      <div class="grid2">
+        <label>Mahlzeit<select name="meal"><option value="breakfast">Frühstück</option><option value="lunch">Mittagessen</option><option value="dinner">Abendessen</option><option value="snack">Snacks</option></select></label>
+        <label>Datum<input type="date" name="date"></label>
+      </div>
+      <label id="editAmountWrap">Menge (<span id="editUnit">g</span>)
+        <input name="amount" type="number" min="0" step="any" inputmode="decimal">
+      </label>
+      <p class="goal-group">Nährwerte dieses Eintrags <span class="muted" id="editScaleHint">– ändern sich mit der Menge</span></p>
+      <div class="grid4">
+        <label>kcal<input name="kcal" type="number" min="0" step="any" inputmode="decimal"></label>
+        <label>Eiweiß g<input name="p" type="number" min="0" step="any" inputmode="decimal"></label>
+        <label>KH g<input name="c" type="number" min="0" step="any" inputmode="decimal"></label>
+        <label>Fett g<input name="f" type="number" min="0" step="any" inputmode="decimal"></label>
+      </div>
+      <div class="grid3">
+        <label>Ballaststoffe g<input name="fib" type="number" min="0" step="any" inputmode="decimal"></label>
+        <label>Zucker g<input name="sug" type="number" min="0" step="any" inputmode="decimal"></label>
+        <label>Salz g<input name="salt" type="number" min="0" step="any" inputmode="decimal"></label>
+      </div>
+      <p class="form-error" id="editError" role="alert"></p>
+      <div class="row">
+        <button type="button" class="btn danger" id="editDeleteBtn">Löschen</button>
+        <button type="submit" class="btn primary">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dialog: Aktivität bearbeiten -->
+  <dialog id="actEditDialog">
+    <form class="sheet" id="actEditForm" novalidate>
+      <header class="sheet-head">
+        <h3>Aktivität bearbeiten</h3>
+        <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
+      </header>
+      <label>Bezeichnung<input name="name" autocomplete="off"></label>
+      <div class="grid2">
+        <label>Dauer (min)<input name="minutes" type="number" min="0" step="1" inputmode="numeric"></label>
+        <label>Verbrauch (kcal)<input name="kcal" type="number" min="0" step="1" inputmode="numeric"></label>
+      </div>
+      <label>Datum<input type="date" name="date"></label>
+      <p class="muted" style="font-size:.8rem;margin-top:-4px">Änderst du die Dauer, wird der Verbrauch passend umgerechnet.</p>
+      <p class="form-error" id="actEditError" role="alert"></p>
+      <div class="row">
+        <button type="button" class="btn danger" id="actEditDeleteBtn">Löschen</button>
+        <button type="submit" class="btn primary">Speichern</button>
+      </div>
     </form>
   </dialog>
 

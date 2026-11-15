@@ -1,4 +1,4 @@
-const CACHE = 'mahlzeiten-v7';
+const CACHE = 'mahlzeiten-v8';
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'foods.js', 'activities.js', 'manifest.webmanifest', 'icons/icon.svg', 'vendor/barcode-detector.js'];
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(

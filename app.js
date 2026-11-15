@@ -226,7 +226,7 @@ function renderDay() {
         <button class="add-round" data-add="${meal.id}" aria-label="${meal.label}: hinzufügen">${PLUS_SVG}</button>
       </div>
       <ul class="entries">${list.map(e => `
-        <li class="entry">
+        <li class="entry" data-entry="${e.id}">
           <div class="e-main">
             <div class="e-name">${esc(e.name)}</div>
             <div class="e-sub">${e.amount ? amountLabel(e) + ' · ' : ''}E ${fmt1(e.p)} · KH ${fmt1(e.c)} · F ${fmt1(e.f)}</div>
@@ -245,7 +245,9 @@ $('#meals').addEventListener('click', e => {
   const del = e.target.closest('[data-del]');
   if (del) return deleteEntry(del.dataset.del);
   const sd = e.target.closest('[data-savedish]');
-  if (sd) saveMealAsDish(sd.dataset.savedish);
+  if (sd) return saveMealAsDish(sd.dataset.savedish);
+  const row = e.target.closest('[data-entry]');
+  if (row) openEntryEdit(row.dataset.entry);
 });
 
 function deleteEntry(id) {
@@ -335,11 +337,20 @@ function filterByQuery(list, rawQuery) {
     .sort((a, b) => norm(a.name).indexOf(words[0]) - norm(b.name).indexOf(words[0]));
 }
 
+function sourceOf(f) {
+  if (f.kind === 'dish') return ['dish', 'Gericht'];
+  if (f.source === 'off' || (f.barcode && f.source !== 'manual')) return ['off', 'Open Food Facts'];
+  if (f.custom) return ['own', 'Eigene'];
+  if (f.quick) return ['own', 'Schnell'];
+  return ['base', 'Basis'];
+}
+const srcBadge = f => { const [k, l] = sourceOf(f); return `<span class="src src-${k}">${l}</span>`; };
+
 function foodRowHtml(f, i, withEdit = false) {
-  const icon = f.kind === 'dish' ? ' 🍲' : f.barcode ? ' 📦' : f.custom ? ' ⭐' : '';
-  const sub = f.kind === 'dish'
-    ? `Gericht · ${f.ingredientCount} Zutat${f.ingredientCount === 1 ? '' : 'en'} · pro Portion`
-    : f.quick ? 'Schnelleintrag' : `pro 100 ${f.unit} · E ${fmt1(f.p)} · KH ${fmt1(f.c)} · F ${fmt1(f.f)}`;
+  const icon = '';
+  const sub = srcBadge(f) + (f.kind === 'dish'
+    ? `${f.ingredientCount} Zutat${f.ingredientCount === 1 ? '' : 'en'} · pro Portion`
+    : f.quick ? 'Schnelleintrag' : `pro 100 ${f.unit} · E ${fmt1(f.p)} · KH ${fmt1(f.c)} · F ${fmt1(f.f)}`);
   const edit = withEdit && f.kind === 'dish'
     ? `<button type="button" class="del-btn edit-btn" data-edit-dish="${f.id}" aria-label="Gericht bearbeiten">✎</button>` : '';
   return `
@@ -363,12 +374,13 @@ function renderResults() {
   if (!list.length) {
     const msg = pickSrc === 'dishes'
       ? (q ? 'Kein passendes Gericht.' : 'Noch keine Gerichte. Speichere eine Mahlzeit als Gericht oder lege eins an.')
-      : q ? 'Nichts gefunden. Lege es unter „Schnell“ oder in den Einstellungen an.' : 'Noch nichts eingetragen.';
-    ul.innerHTML = `<li class="empty">${msg}</li>` + newDish;
+      : q ? 'Nicht in deinen Lebensmitteln – such online weiter oder trag es unter „Schnell“ ein.' : 'Noch nichts eingetragen.';
+    ul.innerHTML = `<li class="empty">${msg}</li>` + newDish + (pickSrc !== 'dishes' && q.length >= 2 ? onlineRowHtml(q) : '');
     ul._list = [];
     return;
   }
-  ul.innerHTML = list.slice(0, 60).map((f, i) => foodRowHtml(f, i, pickSrc === 'dishes')).join('') + newDish;
+  ul.innerHTML = list.slice(0, 60).map((f, i) => foodRowHtml(f, i, pickSrc === 'dishes')).join('') + newDish +
+    (pickSrc !== 'dishes' && q.length >= 2 ? onlineRowHtml(q) : '');
   ul._list = list;
 }
 
@@ -380,6 +392,9 @@ function freshRecent(r) {
 }
 $('#foodSearch').addEventListener('input', renderResults);
 $('#foodResults').addEventListener('click', e => {
+  if (e.target.closest('[data-online]')) return runOnlineSearch($('#foodResults'), $('#foodSearch').value.trim());
+  const online = e.target.closest('[data-o]');
+  if (online) return selectFood($('#foodResults')._online[Number(online.dataset.o)]);
   const edit = e.target.closest('[data-edit-dish]');
   if (edit) return openDishEditor(state.dishes.find(d => d.id === edit.dataset.editDish));
   if (e.target.closest('[data-new-dish]')) return openDishEditor();
@@ -445,6 +460,7 @@ $('#quickAddBtn').onclick = () => {
 };
 
 function addEntry(food) {
+  if (food.source === 'off' && !food.id) food = { ...rememberOnlineFood(food), amount: food.amount };
   const vals = food.quick ? pickN(food) : nutr(food, food.amount);
   const day = getDay(currentDate, true);
   day.entries.push({
@@ -457,7 +473,7 @@ function addEntry(food) {
     ? { name: food.name, ...pickN(food), quick: true }
     : food.kind === 'dish'
     ? { ...food, lastAmount: food.amount, amount: undefined }
-    : { name: food.name, ...pickN(food), unit: food.unit, portion: food.portion, lastAmount: food.amount, custom: food.custom };
+    : { name: food.name, ...pickN(food), unit: food.unit, portion: food.portion, lastAmount: food.amount, custom: food.custom, source: food.source, barcode: food.barcode };
   state.recent = [snap, ...state.recent.filter(r => r.name !== food.name)].slice(0, 30);
   save();
   addDialog.close();
@@ -523,7 +539,7 @@ function renderSettings() {
       <span class="muted">✎</span></li>`;
   }).join('');
   $('#customFoodList').innerHTML = state.customFoods.map(f => `
-    <li><div><div>${esc(f.name)}</div><div class="muted">${fmt(f.kcal)} kcal / 100 ${f.unit}</div></div>
+    <li data-food="${f.id}"><div><div>${esc(f.name)}</div><div class="muted">${srcBadge({ ...f, custom: true })}${fmt(f.kcal)} kcal / 100 ${f.unit}</div></div>
     <button class="del-btn" data-delfood="${f.id}" aria-label="Löschen">✕</button></li>`).join('');
 }
 goalsForm.addEventListener('submit', e => {
@@ -543,7 +559,16 @@ function openFoodDialog(prefill = {}, selectAfterSave = false, message = '') {
   const form = $('#foodForm');
   form.reset();
   form.elements.barcode.value = prefill.barcode || '';
+  form.elements.id.value = prefill.id || '';
+  form.elements.source.value = prefill.source || '';
   if (prefill.name) form.elements.name.value = prefill.name;
+  $('#foodTitle').textContent = prefill.id ? 'Lebensmittel bearbeiten' : 'Eigenes Lebensmittel';
+  if (prefill.id) {
+    form.elements.unit.value = prefill.unit || 'g';
+    form.elements.portion.value = prefill.portion || 100;
+    for (const k of NUTR) form.elements[k].value = prefill[k] ? r1(prefill[k]) : (k === 'kcal' ? 0 : '');
+    if (prefill.salt) form.elements.salt.value = Math.round(prefill.salt * 100) / 100;
+  }
   const info = $('#foodBarcodeInfo');
   info.hidden = !prefill.barcode && !message;
   info.textContent = [message, prefill.barcode ? `Barcode ${prefill.barcode} – beim nächsten Scan wird das Produkt direkt erkannt.` : '']
@@ -560,21 +585,29 @@ $('#foodForm').addEventListener('submit', e => {
     portion: Number(f.portion.value) || 100,
     ...mapN({}, (_, k) => Number(f[k].value) || 0),
     barcode: f.barcode.value || undefined,
+    id: f.id.value || undefined,
+    source: f.source.value || (f.barcode.value ? 'manual' : undefined),
   });
-  renderSettings(); toast('Lebensmittel gespeichert');
+  renderSettings(); toast(f.id.value ? 'Änderungen gespeichert' : 'Lebensmittel gespeichert');
   if (selectAfterFoodSave) deliverScanned({ ...food, custom: true });
   selectAfterFoodSave = false;
 });
 
 function saveCustomFood(food) {
-  const entry = { id: uid(), ...food };
+  const entry = { ...food, id: food.id || uid() };
+  const idx = state.customFoods.findIndex(x => x.id === entry.id);
+  if (idx >= 0) { state.customFoods[idx] = entry; save(); return entry; }
   state.customFoods = [entry, ...state.customFoods.filter(x => !food.barcode || x.barcode !== food.barcode)];
   save();
   return entry;
 }
 $('#customFoodList').addEventListener('click', e => {
   const b = e.target.closest('[data-delfood]');
-  if (!b) return;
+  if (!b) {
+    const li = e.target.closest('[data-food]');
+    if (li) openFoodDialog(state.customFoods.find(f => f.id === li.dataset.food));
+    return;
+  }
   state.customFoods = state.customFoods.filter(f => f.id !== b.dataset.delfood);
   save(); renderSettings();
 });
@@ -793,7 +826,7 @@ function productToFood(code, p) {
   return {
     complete: kcal !== null && !!name,
     food: {
-      name: name || '', unit, portion: portion && portion > 0 ? r1(portion) : 100, barcode: code,
+      name: name || '', unit, portion: portion && portion > 0 ? r1(portion) : 100, barcode: code, source: 'off',
       ...roundN({ kcal: kcal ?? 0, p: num(n.proteins_100g), c: num(n.carbohydrates_100g), f: num(n.fat_100g),
         fib: num(n.fiber_100g), sug: num(n.sugars_100g), salt: num(n.salt_100g) ?? (num(n.sodium_100g) !== null ? num(n.sodium_100g) * 2.5 : 0) }),
     },
@@ -852,7 +885,7 @@ function renderActivities() {
   const total = burnedOn(currentDate);
   $('#actTotal').textContent = list.length ? `${fmt(total)} kcal verbraucht` : '';
   $('#actList').innerHTML = list.map(a => `
-    <li class="entry">
+    <li class="entry" data-act-entry="${a.id}">
       <div class="e-main">
         <div class="e-name">${a.icon ? a.icon + ' ' : ''}${esc(a.name)}</div>
         <div class="e-sub">${a.minutes ? `${fmt(a.minutes)} min` : 'eigene Angabe'}</div>
@@ -868,7 +901,7 @@ function renderActivities() {
 
 $('#actList').addEventListener('click', e => {
   const b = e.target.closest('[data-delact]');
-  if (!b) return;
+  if (!b) { const row = e.target.closest('[data-act-entry]'); if (row) openActEdit(row.dataset.actEntry); return; }
   const day = state.days[currentDate];
   const idx = day.activities.findIndex(a => a.id === b.dataset.delact);
   if (idx < 0) return;
@@ -1466,6 +1499,185 @@ $('#withingsFile').onchange = async e => {
   }
 };
 
+/* ---------- Online-Suche (Open Food Facts) ---------- */
+const onlineRowHtml = q => `<li class="online-row" data-online><div>🔎 Online suchen: „${esc(q)}“<div class="fr-sub">in Open Food Facts – Millionen Produkte aus dem Handel</div></div></li>`;
+const onlineCache = new Map();
+
+async function searchOFF(q) {
+  const key = norm(q);
+  if (onlineCache.has(key)) return onlineCache.get(key);
+  const fields = 'code,product_name,product_name_de,generic_name_de,brands,nutriments,serving_quantity,product_quantity_unit,quantity';
+  const base = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=30&sort_by=unique_scans_n&lc=de&fields=${fields}`;
+  const load = async url => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    return (data.products || []).filter(p => p.code).map(p => productToFood(String(p.code), p)).filter(r => r.complete).map(r => r.food);
+  };
+  // Zuerst Produkte aus Deutschland, sonst weltweit
+  let list = await load(base + '&tagtype_0=countries&tag_contains_0=contains&tag_0=germany');
+  if (!list.length) list = await load(base);
+  const seen = new Set();
+  list = list.filter(f => !seen.has(f.barcode) && seen.add(f.barcode)).slice(0, 25);
+  onlineCache.set(key, list);
+  return list;
+}
+
+async function runOnlineSearch(ul, q) {
+  if (q.length < 2) return;
+  ul.querySelector('[data-online]')?.remove();
+  ul.querySelectorAll('[data-o], .section-head, .loading').forEach(el => el.remove());
+  ul.insertAdjacentHTML('beforeend', '<li class="loading">Suche in Open Food Facts …</li>');
+  ul.lastElementChild.scrollIntoView({ block: 'nearest' });
+  let html;
+  try {
+    const list = await searchOFF(q);
+    ul._online = list;
+    html = `<li class="section-head">Open Food Facts</li>` + (list.length
+      ? list.map((f, i) => foodRowHtml(f, i).replace(`data-i="${i}"`, `data-o="${i}"`)).join('')
+      : '<li class="empty">Keine Produkte mit Nährwerten gefunden.</li>');
+  } catch (err) {
+    console.warn(err);
+    html = '<li class="empty">Online-Suche nicht möglich – keine Verbindung? Versuch es später noch einmal.</li>';
+  }
+  ul.querySelector('.loading')?.remove();
+  ul.insertAdjacentHTML('beforeend', html);
+}
+
+// Online gefundene Produkte lokal speichern (danach offline verfügbar)
+function rememberOnlineFood(food) {
+  const known = state.customFoods.find(f => f.barcode && food.barcode && sameBarcode(f.barcode, food.barcode));
+  if (known) return { ...known, custom: true };
+  const { custom, amount, lastAmount, ...clean } = food;
+  return { ...saveCustomFood({ ...clean, source: 'off' }), custom: true };
+}
+
+/* ---------- Einträge bearbeiten ---------- */
+const editDialog = $('#editDialog');
+const editForm = $('#editForm');
+let editRef = null;      // { date, id }
+let editLastAmount = 0;
+
+function findEntry(date, id) {
+  const day = state.days[date];
+  return day ? day.entries.find(e => e.id === id) : null;
+}
+
+function openEntryEdit(id) {
+  const e = findEntry(currentDate, id);
+  if (!e) return;
+  editRef = { date: currentDate, id };
+  const f = editForm.elements;
+  f.name.value = e.name;
+  f.meal.value = e.meal;
+  f.date.value = currentDate;
+  const hasAmount = e.amount > 0;
+  $('#editAmountWrap').hidden = !hasAmount;
+  $('#editScaleHint').hidden = !hasAmount;
+  $('#editUnit').textContent = e.unit === 'Portion' ? 'Portionen' : e.unit;
+  f.amount.step = e.unit === 'Portion' ? '0.25' : 'any';
+  f.amount.value = hasAmount ? e.amount : '';
+  editLastAmount = hasAmount ? e.amount : 0;
+  for (const k of NUTR) f[k].value = k === 'salt' ? Math.round((e[k] || 0) * 100) / 100 : r1(e[k] || 0);
+  $('#editError').textContent = '';
+  editDialog.showModal();
+}
+
+// Menge ändern -> alle Nährwerte proportional anpassen
+editForm.elements.amount.addEventListener('input', () => {
+  const f = editForm.elements;
+  const a = parseFloat(f.amount.value);
+  if (!(a > 0) || !(editLastAmount > 0)) return;
+  const k = a / editLastAmount;
+  for (const n of NUTR) {
+    const v = (parseFloat(f[n].value) || 0) * k;
+    f[n].value = n === 'salt' ? Math.round(v * 100) / 100 : r1(v);
+  }
+  editLastAmount = a;
+});
+
+editForm.addEventListener('submit', ev => {
+  ev.preventDefault();
+  const f = editForm.elements;
+  const name = f.name.value.trim();
+  if (!name) { $('#editError').textContent = 'Bitte eine Bezeichnung eingeben.'; f.name.focus(); return; }
+  const vals = mapN({}, (_, k) => Math.max(0, parseFloat(String(f[k].value).replace(',', '.')) || 0));
+  const e = findEntry(editRef.date, editRef.id);
+  if (!e) { editDialog.close(); return; }
+  Object.assign(e, { name, meal: f.meal.value, ...roundN(vals) });
+  if (!$('#editAmountWrap').hidden) e.amount = parseFloat(f.amount.value) || e.amount;
+  const newDate = f.date.value || editRef.date;
+  if (newDate !== editRef.date) {
+    const from = state.days[editRef.date];
+    from.entries = from.entries.filter(x => x.id !== e.id);
+    getDay(newDate, true).entries.push(e);
+  }
+  save();
+  editDialog.close();
+  render();
+  toast(newDate !== editRef.date ? `Verschoben auf ${dateLabel(newDate)}` : 'Eintrag aktualisiert');
+});
+
+$('#editDeleteBtn').onclick = () => {
+  editDialog.close();
+  if (editRef.date === currentDate) deleteEntry(editRef.id);
+};
+
+/* ---------- Aktivitäten bearbeiten ---------- */
+const actEditDialog = $('#actEditDialog');
+const actEditForm = $('#actEditForm');
+let actEditRef = null;
+let actEditLastMin = 0;
+
+function openActEdit(id) {
+  const a = (state.days[currentDate]?.activities || []).find(x => x.id === id);
+  if (!a) return;
+  actEditRef = { date: currentDate, id };
+  const f = actEditForm.elements;
+  f.name.value = a.name;
+  f.minutes.value = a.minutes || '';
+  f.kcal.value = Math.round(a.kcal);
+  f.date.value = currentDate;
+  actEditLastMin = a.minutes || 0;
+  $('#actEditError').textContent = '';
+  actEditDialog.showModal();
+}
+actEditForm.elements.minutes.addEventListener('input', () => {
+  const f = actEditForm.elements;
+  const m = parseFloat(f.minutes.value);
+  if (!(m > 0) || !(actEditLastMin > 0)) { if (m > 0) actEditLastMin = m; return; }
+  f.kcal.value = Math.round((parseFloat(f.kcal.value) || 0) * m / actEditLastMin);
+  actEditLastMin = m;
+});
+actEditForm.addEventListener('submit', ev => {
+  ev.preventDefault();
+  const f = actEditForm.elements;
+  const kcal = parseFloat(f.kcal.value);
+  if (!(kcal >= 0)) { $('#actEditError').textContent = 'Bitte den Verbrauch in kcal eingeben.'; return; }
+  const from = state.days[actEditRef.date];
+  const a = from?.activities?.find(x => x.id === actEditRef.id);
+  if (!a) { actEditDialog.close(); return; }
+  Object.assign(a, { name: f.name.value.trim() || a.name, minutes: parseFloat(f.minutes.value) || 0, kcal: Math.round(kcal) });
+  const newDate = f.date.value || actEditRef.date;
+  if (newDate !== actEditRef.date) {
+    from.activities = from.activities.filter(x => x.id !== a.id);
+    (getDay(newDate, true).activities ||= []).push(a);
+  }
+  save();
+  actEditDialog.close();
+  render();
+  toast(newDate !== actEditRef.date ? `Verschoben auf ${dateLabel(newDate)}` : 'Aktivität aktualisiert');
+});
+$('#actEditDeleteBtn').onclick = () => {
+  actEditDialog.close();
+  const day = state.days[actEditRef.date];
+  const idx = day.activities.findIndex(x => x.id === actEditRef.id);
+  if (idx < 0) return;
+  const [removed] = day.activities.splice(idx, 1);
+  save(); render();
+  toast(`„${removed.name}“ gelöscht`, { label: 'Rückgängig', fn: () => { day.activities.splice(idx, 0, removed); save(); render(); } });
+};
+
 /* ---------- Gerichte ---------- */
 const dishDialog = $('#dishDialog');
 const dishForm = $('#dishForm');
@@ -1578,12 +1790,15 @@ function renderDishResults() {
   const ul = $('#dishResults');
   if (!q.trim()) { ul.innerHTML = ''; return; }
   const list = filterByQuery(allFoods(), q).slice(0, 12);
-  ul.innerHTML = list.length ? list.map((f, i) => foodRowHtml(f, i)).join('')
-    : '<li class="empty">Nichts gefunden – lege es unter Einstellungen → Eigene Lebensmittel an oder scanne den Barcode.</li>';
+  ul.innerHTML = (list.length ? list.map((f, i) => foodRowHtml(f, i)).join('')
+    : '<li class="empty">Nicht in deinen Lebensmitteln.</li>') + (q.trim().length >= 2 ? onlineRowHtml(q.trim()) : '');
   ul._list = list;
 }
 $('#dishSearch').addEventListener('input', renderDishResults);
 $('#dishResults').addEventListener('click', e => {
+  if (e.target.closest('[data-online]')) return runOnlineSearch($('#dishResults'), $('#dishSearch').value.trim());
+  const online = e.target.closest('[data-o]');
+  if (online) return addIngredient(rememberOnlineFood($('#dishResults')._online[Number(online.dataset.o)]));
   const li = e.target.closest('li[data-i]');
   if (li) addIngredient($('#dishResults')._list[Number(li.dataset.i)]);
 });
@@ -1639,7 +1854,7 @@ $('#dishList').addEventListener('click', e => {
   if (li) openDishEditor(state.dishes.find(d => d.id === li.dataset.dish));
 });
 
-for (const d of [addDialog, foodDialog, scanDialog, dishDialog, weightDialog, actDialog]) {
+for (const d of [addDialog, foodDialog, scanDialog, dishDialog, weightDialog, actDialog, editDialog, actEditDialog]) {
   d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
 }
 $('#foodSearch').addEventListener('keydown', e => {

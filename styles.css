@@ -473,3 +473,18 @@ dialog::backdrop { background: rgba(8, 12, 10, .45); -webkit-backdrop-filter: bl
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Bearbeiten & Quellen */
+.entry[data-entry], .entry[data-act-entry], #customFoodList li { cursor: pointer; }
+.entry[data-entry]:active, .entry[data-act-entry]:active { opacity: .7; }
+.src { display: inline-block; font-size: .66rem; font-weight: 700; letter-spacing: .02em; padding: 1px 6px; border-radius: 6px; margin-right: 5px; vertical-align: 1px; }
+.src-base { color: var(--muted); background: var(--bg-elev); }
+.src-own { color: var(--accent); background: var(--accent-soft); }
+.src-off { color: #b5651d; background: color-mix(in srgb, #e2902a 16%, transparent); }
+.src-dish { color: var(--f); background: color-mix(in srgb, var(--f) 14%, transparent); }
+.food-results .online-row { color: var(--accent); font-weight: 600; justify-content: flex-start; }
+.food-results .online-row .fr-sub { font-weight: 400; }
+.food-results .section-head { cursor: default; padding: 12px 10px 4px; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.food-results .section-head:hover { background: transparent; }
+.food-results .loading { cursor: default; color: var(--muted); justify-content: center; }
+.food-results .loading:hover { background: transparent; }
