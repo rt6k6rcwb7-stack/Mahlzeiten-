@@ -414,6 +414,7 @@ function selectFood(food) {
       (food.ingredientNames ? ` · ${food.ingredientNames}` : '')
     : `pro 100 ${food.unit}: ${fmt(food.kcal)} kcal · E ${fmt1(food.p)} g · KH ${fmt1(food.c)} g · F ${fmt1(food.f)} g`;
   $('#selUnit').textContent = isDish ? 'Portionen' : food.unit;
+  $('#correctBtn').hidden = isDish || !(food.source === 'off' || food.custom);
   $('#amount').step = isDish ? '0.25' : '1';
   const amt = food.lastAmount || food.portion || 100;
   $('#amount').value = amt;
@@ -442,6 +443,13 @@ function updatePreview() {
 }
 
 $('#backBtn').onclick = () => showStep('pick');
+
+// Werte eines Online-Produkts / eigenen Lebensmittels korrigieren (gilt dauerhaft für dieses Produkt)
+$('#correctBtn').onclick = () => {
+  const food = selected.id ? (state.customFoods.find(f => f.id === selected.id) || selected) : rememberOnlineFood(selected);
+  scanTarget = 'add';
+  openFoodDialog(food, true, 'Korrigiere die Werte pro 100 g bzw. 100 ml, z. B. nach der Packung. Sie gelten ab jetzt für dieses Produkt.');
+};
 $('#confirmAddBtn').onclick = confirmAmount;
 
 function confirmAmount() {
